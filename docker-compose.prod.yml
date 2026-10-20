@@ -1,0 +1,17 @@
+# EC2 운영용: DB는 AWS RDS(MySQL)를 사용하고, 이미지는 GHCR에서 받아옵니다.
+# 같은 디렉터리의 .env 에 DB_URL / DB_USERNAME / DB_PASSWORD / JWT_SECRET / IMAGE_PREFIX 등을 지정하세요.
+services:
+  backend:
+    image: ${IMAGE_PREFIX}-backend:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+
+  frontend:
+    image: ${IMAGE_PREFIX}-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

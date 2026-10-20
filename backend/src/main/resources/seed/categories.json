@@ -1,0 +1,74 @@
+{
+  "001": {
+    "typeLabel": "디퓨저",
+    "volume": "200ml",
+    "composition": "디퓨저 200ml · 스틱 구성 예시",
+    "ritualSteps": [
+      "평평하고 안정적인 곳에 용기를 두고, 마개를 열어 스틱을 꽂아주세요.",
+      "스틱 수를 적게 시작해 공간에 맞는 향의 강도를 찾아보세요.",
+      "액체가 가구나 바닥에 닿지 않도록 받침을 사용하고, 흐른 액체는 바로 닦아주세요."
+    ],
+    "safetyNotice": "내용물을 먹거나 피부에 직접 사용하지 마세요. 어린이와 반려동물의 손이 닿지 않는 곳에 두세요. 직사광선·화기와 넘어지기 쉬운 가장자리를 피하고, 사용 공간을 환기해 주세요.",
+    "playlistTitle": "창문을 열어 둔 거실",
+    "tracks": [
+      {"title": "Aqua", "artist": "Ryuichi Sakamoto"},
+      {"title": "Says", "artist": "Nils Frahm"},
+      {"title": "Una Mattina", "artist": "Ludovico Einaudi"}
+    ],
+    "poem": ["문을 열자 낯익은 방이 조금 달라졌다.", "어제의 공기가 천천히 빠져나가고,", "오늘의 향이 의자 위에 먼저 앉아 있었다."]
+  },
+  "002": {
+    "typeLabel": "인센스",
+    "volume": "40 sticks",
+    "composition": "인센스 40 sticks",
+    "ritualSteps": [
+      "재를 받을 수 있는 불연성 전용 홀더를 평평한 곳에 놓아주세요.",
+      "스틱 끝에 불을 붙인 뒤 불꽃을 끄고, 잔불과 연기를 확인해 주세요.",
+      "사용하는 동안 자리를 지키고, 끝난 뒤 잔불이 완전히 꺼졌는지 확인해 주세요."
+    ],
+    "safetyNotice": "화재 주의: 커튼·침구·종이 등 가연물에서 멀리 두고 사용하세요. 밀폐된 공간에서는 사용하지 말고 충분히 환기하세요. 취침 중 사용하거나 불을 켜 둔 채 자리를 비우지 마세요. 어린이·반려동물의 접근을 막아주세요.",
+    "playlistTitle": "연기가 머무는 동안",
+    "tracks": [
+      {"title": "Near Light", "artist": "Ólafur Arnalds"},
+      {"title": "An Ending (Ascent)", "artist": "Brian Eno"},
+      {"title": "Saman", "artist": "Ólafur Arnalds"}
+    ],
+    "poem": ["가느다란 연기가 천장에 닿기 전에", "나는 오늘 하루를 한 번 접어 두었다.", "타고 남은 자리에 고요가 소복이 쌓였다."]
+  },
+  "003": {
+    "typeLabel": "오드퍼퓸",
+    "volume": "50ml",
+    "composition": "오드퍼퓸 50ml · 용기 1개",
+    "ritualSteps": [
+      "손목 등 원하는 부위에 소량을 분사하고 향을 확인해 주세요.",
+      "세게 문지르기보다 자연스럽게 마르도록 두세요.",
+      "직사광선과 고온을 피해 뚜껑을 닫아 보관해 주세요."
+    ],
+    "safetyNotice": "피부가 민감하다면 먼저 작은 부위에 시험해 주세요. 눈·점막·상처 부위에 사용하지 마세요. 붉어짐·가려움 등 이상이 생기면 사용을 중단하고 전문가와 상담하세요. 먹지 마시고 화기와 어린이의 손이 닿는 곳을 피하세요.",
+    "playlistTitle": "외출 전 거울 앞에서",
+    "tracks": [
+      {"title": "Opening", "artist": "Philip Glass"},
+      {"title": "We Move Lightly", "artist": "Dustin O’Halloran"},
+      {"title": "Flight from the City", "artist": "Jóhann Jóhannsson"}
+    ],
+    "poem": ["문을 나서기 전, 손목에 작은 계절을 얹었다.", "누군가 나를 스쳐 지나갈 때마다", "그 계절이 한 걸음씩 따라 걸었다."]
+  },
+  "004": {
+    "typeLabel": "캔들",
+    "volume": "200g",
+    "composition": "캔들 200g · 용기 1개",
+    "ritualSteps": [
+      "내열 받침 위에 놓고 심지 주변의 이물질을 제거한 뒤 불을 붙여주세요.",
+      "용기 표시사항에 따라 사용하고, 불이 붙은 상태에서는 용기를 옮기지 마세요.",
+      "전용 소화 도구로 불을 끈 뒤 충분히 식혀 보관해 주세요."
+    ],
+    "safetyNotice": "화재 주의: 사용 중에는 자리를 비우지 말고, 취침 전 반드시 불을 꺼주세요. 가연물과 바람이 직접 닿는 곳을 피하고 충분히 환기하세요. 용기는 뜨거울 수 있으니 만지지 마세요. 어린이·반려동물의 손이 닿지 않는 곳에 두세요.",
+    "playlistTitle": "작은 불빛 곁에서",
+    "tracks": [
+      {"title": "Peace Piece", "artist": "Bill Evans"},
+      {"title": "Gymnopédie No. 1", "artist": "Erik Satie · 피아노 연주곡"},
+      {"title": "Una Mattina", "artist": "Ludovico Einaudi"}
+    ],
+    "poem": ["작은 불꽃 하나가 방의 모서리를 둥글게 만들었다.", "나는 그 곁에서 오래 읽지 못한 책을 펼치고,", "녹아내린 향이 저녁을 천천히 데웠다."]
+  }
+}

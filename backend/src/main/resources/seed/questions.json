@@ -1,0 +1,42 @@
+[
+  {"no":1,"step":"시간과 장소","english":"TIME & PLACE","layout":"GRID",
+   "title":"Q. 당신이 가장 몰입하게 되는 '시간과 장소'는 언제인가요?","guide":"눈을 감고, 오래 머물고 싶은 장면을 떠올려 보세요.",
+   "options":[
+     {"label":"모두가 잠든 새벽 4시, 차가운 공기가 가득한 도심 거리","image":"/images/quiz/q1-1.jpg","tags":"AQUATIC,MUSK,SMOKY"},
+     {"label":"비 온 직후, 아스팔트와 흙이 젖어 아지랑이가 피어오르는 골목","image":"/images/quiz/q1-2.jpg","tags":"EARTHY,GREEN"},
+     {"label":"지하철/미술관처럼 차갑지만 정돈된 철제와 콘크리트 공간","image":"/images/quiz/q1-3.jpg","tags":"MUSK,AQUATIC,WOODY"},
+     {"label":"햇살이 비치는 고서점/도서관의 오래된 종이 냄새","image":"/images/quiz/q1-4.jpg","tags":"WOODY,AMBER,POWDERY"}]},
+  {"no":2,"step":"질감과 소리","english":"TEXTURE & SOUND","layout":"GRID",
+   "title":"Q. 좋아하는 '질감'이나 '소리'는 무엇인가요?","guide":"손끝에 닿는 감촉, 귓가에 머무는 작은 소리를 상상해 보세요.",
+   "options":[
+     {"label":"차가운 유리창에 떨어진 빗방울과 서리","image":"/images/quiz/q2-1.jpg","tags":"AQUATIC,CITRUS"},
+     {"label":"바스락거리는 오래된 책장이나 건조한 나무 소재","image":"/images/quiz/q2-2.jpg","tags":"WOODY,SMOKY"},
+     {"label":"따뜻하게 몸을 감싸주는 포근한 니트나 캐시미어","image":"/images/quiz/q2-3.jpg","tags":"MUSK,AMBER,POWDERY"},
+     {"label":"서늘한 밤바람에 흩날리는 샤틴/실크의 감촉","image":"/images/quiz/q2-4.jpg","tags":"FLORAL,MUSK"}]},
+  {"no":3,"step":"분위기","english":"MOOD & IMAGE","layout":"GRID",
+   "title":"Q. 오늘 하루, 나를 나타내고 싶은 '분위기(Mood)'는?","guide":"누군가의 시선보다, 오늘 내가 느끼고 싶은 모습에 집중해 보세요.",
+   "options":[
+     {"label":"차분하고 지적인, 약간의 차가움을 간직한 도시적 느낌","image":"/images/quiz/q3-1.jpg","tags":"WOODY,MUSK"},
+     {"label":"편안하고 자연스러운, 꾸밈없는 무드","image":"/images/quiz/q3-2.jpg","tags":"GREEN,TEA,HERBAL"},
+     {"label":"화려하고 존재감 있는, 섹시하고 감각적인 무드","image":"/images/quiz/q3-3.jpg","tags":"AMBER,FLORAL,SWEET"},
+     {"label":"생기 있고 밝은, 사랑스러운 무드","image":"/images/quiz/q3-4.jpg","tags":"CITRUS,FLORAL,SWEET"}]},
+  {"no":4,"step":"음악","english":"MUSIC & RHYTHM","layout":"GRID",
+   "title":"Q. 당신의 공간에 항상 틀어놓고 싶은 음악 장르는?","guide":"익숙한 멜로디가 흐르는 공간에서, 나의 리듬을 찾아보세요.",
+   "options":[
+     {"label":"잔잔하게 빗소리와 섞이는 Lo-Fi / 째즈","image":"/images/quiz/q4-1.jpg","tags":"TEA,WOODY,AMBER"},
+     {"label":"차분하고 서정적인 클래식 / 아쿠스틱","image":"/images/quiz/q4-2.jpg","tags":"POWDERY,FLORAL,GREEN"},
+     {"label":"감각적이고 몽환적인 시티팝 / Synthwave","image":"/images/quiz/q4-3.jpg","tags":"CITRUS,MUSK,AQUATIC"},
+     {"label":"템포가 빠르고 신나는 Pop / EDM","image":"/images/quiz/q4-4.jpg","tags":"CITRUS,SWEET"}]},
+  {"no":5,"step":"사용 장면","english":"EVERYDAY RITUAL","layout":"LIST",
+   "title":"Q. 이 향을 언제/어디서 주로 즐기고 싶으신가요?","guide":"향과 함께하고 싶은 일상의 순간을 골라 주세요.",
+   "options":[
+     {"label":"출근/외출 시 나만의 인상을 남기기 위해","image":"/images/quiz/q5-1.jpg","category":"003"},
+     {"label":"퇴근 후 집에서 온전한 휴식을 취할 때","image":"/images/quiz/q5-2.jpg","category":"004,002"},
+     {"label":"방 안의 분위기나 공기를 전환하고 싶을 때","image":"/images/quiz/q5-3.jpg","category":"001,002"}]},
+  {"no":6,"step":"잔향과 무게감","english":"DEPTH & AFTERGLOW","layout":"LIST",
+   "title":"Q. 선호하는 향의 '잔향과 무게감'은 어느 정도인가요?","guide":"마지막 질문이에요. 향이 남기는 여운의 깊이를 골라 주세요.",
+   "options":[
+     {"label":"가볍고 은은해서 나만 살짝 느낄 수 있는 정도","image":"/images/quiz/q6-1.jpg","intensity":1},
+     {"label":"스쳐 지나갈 때 잔향이 기분 좋게 감도는 정도","image":"/images/quiz/q6-2.jpg","intensity":2},
+     {"label":"묵직하고 짙어서 오래도록 지속되는 정도","image":"/images/quiz/q6-3.jpg","intensity":3}]}
+]

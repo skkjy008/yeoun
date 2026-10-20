@@ -1,0 +1,140 @@
+.center {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+  padding-top: 80px;
+  padding-bottom: 80px;
+  color: var(--color-muted);
+}
+.center h1 {
+  font-size: 32px;
+  color: var(--color-ink);
+}
+
+.soon {
+  display: flex;
+  gap: 64px;
+  align-items: center;
+  padding-top: 64px;
+  padding-bottom: 96px;
+}
+.soonCopy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.soonCopy h1 {
+  font-size: 34px;
+  line-height: 1.5;
+}
+.soonCopy > p:not(:global(.eyebrow)) {
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--color-muted);
+}
+.soonActions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.soonImage {
+  flex: 0 0 48%;
+  height: 460px;
+  object-fit: cover;
+}
+
+.mypage {
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  padding-top: 48px;
+  padding-bottom: 96px;
+}
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.profile h1 {
+  font-size: 36px;
+}
+.profile dl {
+  margin: 8px 0 0;
+  border-top: 1px solid var(--color-ink);
+}
+.profile dl div {
+  display: flex;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-line);
+  font-size: 13px;
+}
+.profile dt {
+  width: 120px;
+  color: var(--color-muted);
+}
+.profile dd {
+  margin: 0;
+}
+.myScent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.myScentHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.myScentHead h2 {
+  font-size: 26px;
+}
+.myScentHead a {
+  font-size: 13px;
+  color: var(--color-brown);
+}
+.headline {
+  font-family: var(--font-serif);
+  font-size: 20px;
+}
+.summary {
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--color-muted);
+  max-width: 860px;
+}
+.myGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1024px) {
+  .soon {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .soonImage {
+    flex: none;
+    width: 100%;
+    height: 280px;
+  }
+  .myGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .myGrid {
+    grid-template-columns: 1fr;
+  }
+  .soonCopy h1,
+  .center h1 {
+    font-size: 24px;
+  }
+}

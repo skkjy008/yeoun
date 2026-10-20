@@ -1,0 +1,702 @@
+.loading {
+  display: flex;
+  gap: 64px;
+  padding-top: 78px;
+  padding-bottom: 80px;
+}
+.loadingPhoto {
+  flex: 0 0 568px;
+  height: 438px;
+}
+.loadingCopy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  justify-content: center;
+}
+
+/* Intro */
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  padding-top: 28px;
+  padding-bottom: 60px;
+}
+.breadcrumb {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+.identity {
+  display: flex;
+  gap: 64px;
+  align-items: center;
+}
+.photo {
+  position: relative;
+  flex: 0 0 568px;
+  height: 438px;
+  background: var(--color-sand);
+}
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.soldOutBadge {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  padding: 8px 12px;
+  font-family: var(--font-latin);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+.introCopy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.nameBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nameBlock h1 {
+  font-size: 44px;
+  line-height: 1.5;
+}
+.nameBlock p {
+  font-size: 17px;
+  line-height: 1.8;
+}
+.summary {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+.priceRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 0;
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+}
+.price {
+  font-size: 24px;
+  color: var(--color-brown);
+}
+.priceHint {
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+.soldOutText {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+.rating {
+  font-size: 12px;
+  color: var(--color-brown);
+}
+.hint {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+
+/* Detail navigation */
+.detailNav {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 20;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+}
+.detailNav > div {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 60px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.detailNav a {
+  font-size: 13px;
+  color: var(--color-brown);
+  white-space: pre;
+}
+.detailNav a:hover {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+
+section[id] {
+  scroll-margin-top: calc(var(--header-h) + 64px);
+}
+
+/* Shared heading */
+.storyHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.storyHeading h2 {
+  display: flex;
+  flex-direction: column;
+  font-size: 28px;
+  line-height: 1.5;
+}
+
+/* Landscape */
+.landscape {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+.artworkRow {
+  display: flex;
+  gap: 48px;
+  align-items: center;
+}
+.artwork {
+  flex: 0 0 784px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.artwork img {
+  height: 506px;
+  width: 100%;
+  object-fit: cover;
+}
+.artwork figcaption {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+.artwork figcaption :global(.latin) {
+  color: var(--color-brown);
+}
+.story {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.storyBody {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+.character {
+  border-top: 1px solid var(--color-line);
+  padding-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.character span {
+  display: inline-block;
+  width: 72px;
+}
+.notes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+}
+.note {
+  border-top: 1px solid var(--color-line);
+  padding-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.note :global(.serif) {
+  font-size: 20px;
+  color: var(--color-brown);
+}
+.note p:last-child {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+
+/* Ritual */
+.ritualSection {
+  background: var(--color-bg-soft);
+}
+.ritual {
+  display: flex;
+  gap: 72px;
+  padding-top: 64px;
+  padding-bottom: 64px;
+}
+.specs {
+  flex: 0 0 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.table {
+  margin: 0;
+}
+.table div {
+  display: flex;
+  gap: 24px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--color-line);
+  line-height: 1.8;
+}
+.table dt {
+  width: 130px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.table dd {
+  margin: 0;
+  font-size: 13px;
+}
+.guide {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.guideTitle {
+  font-weight: 500;
+  font-size: 16px;
+}
+.step {
+  display: flex;
+  gap: 18px;
+}
+.step :global(.latin) {
+  width: 24px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-brown);
+}
+.step p {
+  font-size: 13px;
+  line-height: 1.8;
+}
+.safety {
+  border: 1px solid var(--color-line);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.safety p:first-child {
+  font-weight: 700;
+  color: var(--color-brown);
+}
+.safety p:last-child {
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+
+/* Words & sounds */
+.words {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+.curation {
+  display: flex;
+  gap: 32px;
+  align-items: stretch;
+}
+.poem {
+  flex: 0 0 632px;
+  min-height: 360px;
+  background: var(--color-poem);
+  padding: 42px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  color: var(--color-sand);
+  font-size: 11px;
+}
+.poem :global(.latin) {
+  font-size: 10px;
+}
+.poemLines {
+  display: flex;
+  flex-direction: column;
+  font-size: 20px;
+  line-height: 2.3;
+  color: var(--color-paper);
+}
+.playlist {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 8px;
+}
+.playlistHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.playlistHead > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.playlistHead :global(.latin) {
+  font-size: 10px;
+  color: var(--color-brown);
+}
+.playlistHead :global(.serif) {
+  font-size: 23px;
+}
+.playButton {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-line);
+  color: var(--color-brown);
+  font-family: var(--font-latin);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.playButton:hover {
+  border-color: var(--color-brown);
+}
+.player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.player iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.tracks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tracks button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-line);
+  text-align: left;
+  font-family: var(--font-latin);
+}
+.tracks button:hover .trackInfo span:first-child,
+.activeTrack .trackInfo span:first-child {
+  color: var(--color-brown);
+}
+.trackNo {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.trackInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.trackInfo span:first-child {
+  font-size: 14px;
+}
+.trackInfo span:last-child {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.trackArrow {
+  font-size: 12px;
+  color: var(--color-brown);
+}
+.services {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.services :global(.btn) {
+  height: 42px;
+  font-size: 12px;
+}
+
+/* Purchase */
+.purchase {
+  background: var(--color-sand);
+}
+.purchaseInner {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 36px;
+  padding-bottom: 36px;
+}
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+.purchaseName {
+  font-size: 24px;
+}
+.purchaseMeta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.totalRow {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+}
+.quantity {
+  width: 108px;
+  height: 36px;
+  border: 1px solid var(--color-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-family: var(--font-latin);
+  font-size: 13px;
+}
+.quantity button {
+  color: var(--color-brown);
+  font-size: 16px;
+  line-height: 1;
+}
+.quantity button:disabled {
+  opacity: 0.3;
+}
+.total {
+  font-size: 26px;
+  color: var(--color-brown);
+}
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.actions :global(.btn) {
+  height: 54px;
+}
+
+/* Comments */
+.comments {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 64px;
+  padding-bottom: 72px;
+}
+.commentsGuide {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+.composer {
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stars {
+  display: flex;
+  gap: 4px;
+}
+.stars button {
+  font-size: 18px;
+  color: var(--color-line);
+}
+.stars .starOn {
+  color: var(--color-brown);
+}
+.composer textarea {
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.7;
+  min-height: 48px;
+}
+.composer textarea::placeholder {
+  color: var(--color-muted);
+}
+.composerActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.composerActions :global(.btn) {
+  width: 100px;
+  height: 42px;
+  font-size: 12px;
+}
+.commentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-line);
+}
+.noComment {
+  padding: 22px 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.comment {
+  border-bottom: 1px solid var(--color-line);
+  padding: 22px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.comment > p {
+  font-size: 14px;
+  line-height: 1.8;
+}
+.commentMeta {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.commentStars {
+  color: var(--color-brown);
+}
+.commentAuthor {
+  font-size: 12px;
+  color: var(--color-ink);
+}
+.commentDelete {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-muted);
+  text-decoration: underline;
+}
+
+@media (max-width: 1280px) {
+  .artwork {
+    flex-basis: 58%;
+  }
+  .poem {
+    flex-basis: 50%;
+  }
+  .photo,
+  .loadingPhoto {
+    flex-basis: 46%;
+  }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --header-h: 104px;
+  }
+  .identity,
+  .artworkRow,
+  .ritual,
+  .curation {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .photo,
+  .artwork,
+  .specs,
+  .poem {
+    flex: none;
+    width: 100%;
+  }
+  .photo {
+    height: 420px;
+  }
+  .artwork img {
+    height: 380px;
+  }
+  .ritual {
+    gap: 48px;
+  }
+  .detailNav > div {
+    gap: 28px;
+  }
+}
+
+@media (max-width: 720px) {
+  .nameBlock h1 {
+    font-size: 32px;
+  }
+  .photo {
+    height: 320px;
+  }
+  .artwork img {
+    height: 260px;
+  }
+  .notes {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .poem {
+    padding: 28px;
+    min-height: auto;
+  }
+  .poemLines {
+    font-size: 16px;
+    line-height: 2.1;
+  }
+  .summaryRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .totalRow {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .actions,
+  .services {
+    grid-template-columns: 1fr;
+  }
+  .loading {
+    flex-direction: column;
+  }
+}
