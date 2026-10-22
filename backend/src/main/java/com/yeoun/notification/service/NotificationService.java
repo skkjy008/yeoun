@@ -10,6 +10,7 @@ import com.yeoun.notification.dto.NotificationResponse;
 import com.yeoun.notification.repository.NotificationRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final MemberRepository memberRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 특정 권한을 가진 모든 회원에게 알림을 보냅니다. (예: 조향사 인증 요청 → 모든 운영자) */
     @Transactional
@@ -27,12 +29,17 @@ public class NotificationService {
         List<Notification> notifications = memberRepository.findAllByRole(role).stream()
                 .map(recipient -> new Notification(recipient, type, message, link))
                 .toList();
-        notificationRepository.saveAll(notifications);
+        notificationRepository.saveAll(notifications).forEach(this::publish);
     }
 
     @Transactional
     public void notify(Member recipient, Type type, String message, String link) {
-        notificationRepository.save(new Notification(recipient, type, message, link));
+        publish(notificationRepository.save(new Notification(recipient, type, message, link)));
+    }
+
+    private void publish(Notification notification) {
+        eventPublisher.publishEvent(new NotificationCreatedEvent(notification.getRecipient().getId(),
+                NotificationResponse.from(notification)));
     }
 
     public List<NotificationResponse> findMine(Long memberId) {

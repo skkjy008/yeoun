@@ -3,6 +3,7 @@ package com.yeoun.global.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yeoun.global.exception.GlobalExceptionHandler.ErrorResponse;
 import com.yeoun.global.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -41,10 +42,14 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE 비동기 디스패치는 최초 요청에서 이미 인증을 거쳤으므로 통과시킵니다.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/auth/**", "/actuator/health", "/api/docs/**", "/v3/api-docs/**",
                                 "/swagger-ui/**", "/h2-console/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/reviews/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/categories/**", "/api/posts/**",
-                                "/api/reviews/**", "/api/preferences/questions", "/api/music/**").permitAll()
+                                "/api/reviews/**", "/api/preferences/questions", "/api/music/**",
+                                "/api/commissions").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex

@@ -1,8 +1,8 @@
 import { Heart } from 'lucide-react';
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ProductSummary } from '../api/types';
 import { formatPrice } from '../lib/format';
+import { useShop } from '../shop/ShopContext';
 import styles from './ProductCard.module.css';
 
 interface Props {
@@ -13,7 +13,8 @@ interface Props {
 }
 
 export default function ProductCard({ product, variant = 'list', badge }: Props) {
-  const [saved, setSaved] = useState(false);
+  const { wished, toggleWish } = useShop();
+  const saved = wished(product.id);
   const image = variant === 'home' ? product.thumbnailUrl : product.imageUrl;
 
   return (
@@ -27,7 +28,7 @@ export default function ProductCard({ product, variant = 'list', badge }: Props)
         className={styles.save}
         aria-pressed={saved}
         aria-label={saved ? '저장 취소' : '향 저장하기'}
-        onClick={() => setSaved((v) => !v)}
+        onClick={() => void toggleWish(product.id)}
       >
         <Heart size={variant === 'home' ? 19 : 20} strokeWidth={1.4} fill={saved ? 'currentColor' : 'none'} />
       </button>

@@ -5,6 +5,8 @@ import { notificationApi } from '../../api/endpoints';
 import type { NotificationItem } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { formatDate } from '../../lib/format';
+import { subscribeNotifications } from '../../lib/notificationStream';
+import { useShop } from '../../shop/ShopContext';
 import { useToast } from '../Toast';
 import styles from './Header.module.css';
 
@@ -23,6 +25,7 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const { cartCount } = useShop();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
@@ -44,6 +47,19 @@ export default function Header() {
     }
     notificationApi.unreadCount().then((r) => setUnread(r.count)).catch(() => setUnread(0));
   }, [member, location.pathname]);
+
+  // 실시간 알림: 커미션 의뢰·제안·주문 상태가 바뀌면 바로 배지와 토스트로 알려 줍니다.
+  useEffect(() => {
+    if (!member) return undefined;
+    return subscribeNotifications({
+      onConnected: (count) => setUnread(count),
+      onNotification: (item) => {
+        setUnread((n) => n + 1);
+        setNotifications((list) => [item, ...list.filter((n) => n.id !== item.id)]);
+        toast(item.message);
+      },
+    });
+  }, [member, toast]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -168,6 +184,8 @@ export default function Header() {
                   {member.name} 님 <span>{member.gradeLabel}</span>
                 </p>
                 <Link to="/mypage">마이페이지</Link>
+                <Link to="/mypage/orders">주문 / 배송 조회</Link>
+                <Link to="/custom?tab=mine">나의 커미션</Link>
                 {member.role === 'ADMIN' && <Link to="/admin">관리자 페이지</Link>}
                 <button onClick={logout}>로그아웃</button>
               </div>
@@ -175,14 +193,14 @@ export default function Header() {
           </div>
 
           <button
-            aria-label="장바구니"
+            aria-label={`장바구니 ${cartCount}개`}
             onClick={() => {
-              if (requireMember('장바구니는 회원만 이용할 수 있어요.')) toast('장바구니는 다음 단계에서 열릴 예정이에요.');
+              if (requireMember('장바구니는 회원만 이용할 수 있어요.')) navigate('/cart');
             }}
           >
             <ShoppingBag size={21} strokeWidth={1.4} />
           </button>
-          <span className={styles.count}>0</span>
+          <span className={styles.count}>{cartCount}</span>
         </div>
       </div>
     </header>

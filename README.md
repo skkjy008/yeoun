@@ -35,13 +35,29 @@
 - [x] 예시 데이터 자동 생성(상품 36종, 질문 6개, 배너 4개, 회원/리뷰)
 - [x] Docker Compose, Nginx, GitHub Actions CI, GHCR + EC2 배포 워크플로
 
+## 구현 범위 (2단계)
+
+- [x] **장바구니**: 담기(같은 상품은 수량 합산)·수량 변경·선택 삭제, 품절/재고 부족 표시, 헤더 개수 배지
+- [x] **주문서 · 모의 결제**: 주문자/배송지(주소 검색, 기본 배송지 저장), 쿠폰·적립금 적용, 결제수단 3종
+  - 비관적 잠금(`SELECT … FOR UPDATE`)으로 재고 차감 → 초과 판매 방지, 주문 번호 `YN-yyyyMMdd-####`
+  - 카드 정보는 받지 않는 모의 승인(`MockPaymentGateway`) — 실제 PG로 교체할 지점을 한 곳에 모음
+  - 결제 완료 → 상품 준비 중 → 배송 중 → 배송 완료 (단계 건너뛰기 불가), 결제 완료 단계에서 회원 직접 취소 시 재고·쿠폰·적립금 복구
+  - 배송 완료 시 상품 금액 1% 적립, 누적 구매 금액으로 등급 자동 상향
+- [x] **쿠폰**: 가입 즉시 3,000원 웰컴 쿠폰(30,000원 이상, 30일)
+- [x] **찜한 향**: 상품 카드 하트 ↔ 마이페이지 목록
+- [x] **마이페이지**(Figma): 멤버십 요약, 등급 진행도, 주문 상태별 건수, 최근 주문, 주문 상세/취소, 쿠폰·적립금, 나의 의견, 나의 커미션, 회원정보·비밀번호 수정, 배송지 관리
+- [x] **커스텀 커미션 게시판**(아트머그 방식)
+  - 의뢰 등록 → 인증된 **모든 조향사에게 실시간 알림(SSE)** → 조향사 제안(가격·기간·방향)
+  - 의뢰인이 제안 선택 + **선결제** → 나머지 제안 자동 마감 → 조향사 전달 → **향 만족도 · 조향사 평가 후기**
+  - 제안 내용은 의뢰인에게만 공개, 조향사 카드에 평균 평점·완료 건수 표시
+- [x] **실시간 알림**: `GET /api/notifications/stream` (Server-Sent Events, fetch 스트림으로 JWT 헤더 전달, 자동 재연결)
+- [x] 운영자 주문 관리 탭(상태 변경·취소)
+
 ### 다음 단계
 
-- [ ] 장바구니 · 주문서 · 결제 (Figma: 장바구니 / 주문서 화면)
-- [ ] 마이페이지 주문 내역·찜 목록 (Figma: 마이페이지 화면)
-- [ ] 커스텀 커미션 게시판: 의뢰 등록 → 인증 조향사에게 push 알림 → 선결제 → 후기/조향사 평가
 - [ ] 테마(계절·기념일) 큐레이션 페이지
-- [ ] Flyway 마이그레이션, 이미지 S3 업로드
+- [ ] 실제 PG(토스페이먼츠 등) 연동, 커미션 정산/환불
+- [ ] Flyway 마이그레이션, 이미지 S3 업로드, 다중 인스턴스용 알림 브로커(Redis Pub/Sub)
 
 ## 빠르게 실행하기
 
@@ -81,6 +97,10 @@ npm run dev
 | 조향사(승인) | atelier@yeoun.example | yeoun1234! |
 | 조향사(승인 대기) | newnose@yeoun.example | yeoun1234! |
 
+`yeon@` 계정에는 배송 완료·배송 중 주문, `seowoo@`·`haseo@` 계정에는 커미션 의뢰 예시가 들어 있습니다.
+
+> **기존 로컬 DB를 쓰던 경우**: 2단계에서 새 테이블·컬럼이 추가됩니다(`ddl-auto: update`가 생성). 1단계에서 `notification.type`이 MySQL `enum` 컬럼으로 만들어졌다면 새 알림 종류 저장 시 오류가 나므로 `ALTER TABLE notification MODIFY type VARCHAR(40) NOT NULL;` 을 한 번 실행하거나 `docker compose down -v`로 DB를 초기화하세요.
+
 ## 환경 변수
 
 | 이름 | 설명 |
@@ -95,7 +115,8 @@ npm run dev
 ## 폴더 구조
 
 ```
-backend/   Spring Boot API (도메인별 패키지: member, product, preference, review, post, notification, admin, music)
+backend/   Spring Boot API (도메인별 패키지: member, product, preference, review, post, notification, admin, music,
+           cart, wishlist, coupon, order, commission)
 frontend/  React + Vite SPA (pages / components / api / auth), public/images = Figma 에셋
 docs/      ERD·API 문서
 .github/   CI / CD 워크플로

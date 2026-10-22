@@ -38,6 +38,11 @@ public class ReviewController {
         return reviewService.featured();
     }
 
+    @GetMapping("/api/reviews/me")
+    public List<ReviewResponse> mine(@AuthenticationPrincipal AuthMember me) {
+        return reviewService.findMine(me.id());
+    }
+
     @PostMapping("/api/products/{productId}/reviews")
     @ResponseStatus(HttpStatus.CREATED)
     public ReviewResponse create(@PathVariable Long productId, @AuthenticationPrincipal AuthMember me,

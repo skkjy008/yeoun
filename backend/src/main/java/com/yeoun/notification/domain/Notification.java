@@ -15,6 +15,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -25,7 +27,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Notification extends BaseTimeEntity {
 
-    public enum Type { PERFUMER_APPLICATION, PERFUMER_APPROVED, PERFUMER_REJECTED, COMMISSION_REQUEST, SYSTEM }
+    public enum Type {
+        PERFUMER_APPLICATION, PERFUMER_APPROVED, PERFUMER_REJECTED, ORDER_STATUS,
+        COMMISSION_REQUEST, COMMISSION_PROPOSAL, COMMISSION_ACCEPTED, COMMISSION_DELIVERED, COMMISSION_REVIEWED, SYSTEM
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -37,6 +42,7 @@ public class Notification extends BaseTimeEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     private Type type;
 
     @Column(nullable = false, length = 300)

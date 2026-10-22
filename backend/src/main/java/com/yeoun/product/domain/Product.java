@@ -1,5 +1,6 @@
 package com.yeoun.product.domain;
 
+import com.yeoun.global.exception.ApiException;
 import com.yeoun.global.common.BaseTimeEntity;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -206,6 +207,26 @@ public class Product extends BaseTimeEntity {
 
     public void changeStock(int stock) {
         this.stock = Math.max(0, stock);
+    }
+
+    /** 주문 시 재고를 차감합니다. 재고가 부족하면 주문할 수 없습니다. */
+    public void decreaseStock(int quantity) {
+        if (!active) {
+            throw ApiException.badRequest("판매가 종료된 상품입니다: " + name);
+        }
+        if (quantity > stock) {
+            throw ApiException.conflict(stock == 0
+                    ? "'%s'은(는) 품절되었어요.".formatted(name)
+                    : "'%s'의 남은 재고는 %d개입니다.".formatted(name, stock));
+        }
+        this.stock -= quantity;
+        this.popularity += quantity;
+    }
+
+    /** 주문 취소 시 재고를 되돌립니다. */
+    public void increaseStock(int quantity) {
+        this.stock += quantity;
+        this.popularity = Math.max(0, this.popularity - quantity);
     }
 
     /** 생성·수정에 사용하는 상품 명세 */

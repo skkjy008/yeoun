@@ -61,3 +61,15 @@ export const CATEGORY_META: Record<
 };
 
 export const CATEGORY_ORDER = ['diffuser', 'incense', 'perfume', 'candle'] as const;
+
+/** 배송비 정책 (백엔드 ShippingPolicy와 같은 값) */
+export const FREE_SHIPPING = 50_000;
+export const SHIPPING_FEE = 3_000;
+export const shippingFor = (amount: number) => (amount === 0 || amount >= FREE_SHIPPING ? 0 : SHIPPING_FEE);
+
+export const formatDateTime = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${formatDate(iso)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};

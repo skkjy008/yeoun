@@ -2,7 +2,14 @@ package com.yeoun.global.seed;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yeoun.commission.domain.Commission;
+import com.yeoun.commission.domain.CommissionProposal;
+import com.yeoun.commission.repository.CommissionProposalRepository;
+import com.yeoun.commission.repository.CommissionRepository;
+import com.yeoun.coupon.domain.Coupon;
+import com.yeoun.coupon.repository.CouponRepository;
 import com.yeoun.global.config.YeounProperties;
+import com.yeoun.member.domain.Address;
 import com.yeoun.member.domain.Grade;
 import com.yeoun.member.domain.Member;
 import com.yeoun.member.domain.PerfumerApplication;
@@ -11,6 +18,12 @@ import com.yeoun.member.repository.MemberRepository;
 import com.yeoun.member.repository.PerfumerApplicationRepository;
 import com.yeoun.notification.domain.Notification;
 import com.yeoun.notification.repository.NotificationRepository;
+import com.yeoun.order.domain.Order;
+import com.yeoun.order.domain.OrderItem;
+import com.yeoun.order.domain.OrderStatus;
+import com.yeoun.order.domain.PaymentMethod;
+import com.yeoun.order.domain.ShippingPolicy;
+import com.yeoun.order.repository.OrderRepository;
 import com.yeoun.post.domain.Post;
 import com.yeoun.post.repository.PostRepository;
 import com.yeoun.preference.domain.PreferenceOption;
@@ -24,6 +37,7 @@ import com.yeoun.review.domain.Review;
 import com.yeoun.review.repository.ReviewRepository;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -56,6 +70,10 @@ public class DataSeeder implements ApplicationRunner {
     private final PreferenceQuestionRepository questionRepository;
     private final PostRepository postRepository;
     private final ReviewRepository reviewRepository;
+    private final CouponRepository couponRepository;
+    private final OrderRepository orderRepository;
+    private final CommissionRepository commissionRepository;
+    private final CommissionProposalRepository proposalRepository;
 
     @Override
     @Transactional
@@ -77,6 +95,15 @@ public class DataSeeder implements ApplicationRunner {
         }
         if (reviewRepository.count() == 0) {
             seedReviews();
+        }
+        if (couponRepository.count() == 0) {
+            seedCoupons();
+        }
+        if (orderRepository.count() == 0) {
+            seedOrders();
+        }
+        if (commissionRepository.count() == 0) {
+            seedCommissions();
         }
     }
 
@@ -228,6 +255,89 @@ public class DataSeeder implements ApplicationRunner {
                 "현관에 두었는데 문을 열 때마다 숲을 만난 기분이에요. 과하지 않아 더 좋아요.", true));
         reviewRepository.save(new Review(forest, walker, 4, null,
                 "젖은 이끼 아트워크를 보니 비 오는 날 창문을 조금 열어 둔 서재가 떠올라요.", false));
+    }
+
+    private void seedCoupons() {
+        memberRepository.findAll().stream()
+                .filter(m -> m.getRole() != Role.ADMIN)
+                .forEach(m -> couponRepository.save(Coupon.welcome(m)));
+    }
+
+    /** 데모 회원(김여연)의 주문 내역: 배송 완료 1건, 배송 중 1건 */
+    private void seedOrders() {
+        Member yeon = memberRepository.findByEmail("yeon@yeoun.example").orElse(null);
+        List<Product> products = productRepository.findAll();
+        Product forest = findByName(products, "숲의 잔향");
+        Product night = findByName(products, "고요한 밤");
+        Product skin = findByName(products, "살결의 온도");
+        Product afternoon = findByName(products, "느린 오후");
+        if (yeon == null || forest == null || night == null || skin == null || afternoon == null) {
+            return;
+        }
+        Address address = new Address("김여연", "010-1234-5678", "04524", "서울특별시 중구 세종대로 110", "여운빌 302호");
+        yeon.changeAddress(address);
+
+        Order delivered = demoOrder(yeon, address, "YN-20261012-0417", List.of(forest, night), List.of(1, 2));
+        delivered.advanceTo(OrderStatus.PREPARING);
+        delivered.advanceTo(OrderStatus.SHIPPING);
+        delivered.advanceTo(OrderStatus.DELIVERED);
+        yeon.addPoint(delivered.earnPoint());
+        orderRepository.save(delivered);
+
+        Order shipping = demoOrder(yeon, address, "YN-20261018-2731", List.of(skin, afternoon), List.of(1, 1));
+        shipping.advanceTo(OrderStatus.PREPARING);
+        shipping.advanceTo(OrderStatus.SHIPPING);
+        orderRepository.save(shipping);
+    }
+
+    private static Order demoOrder(Member member, Address address, String number, List<Product> products,
+                                   List<Integer> quantities) {
+        Order order = Order.builder().orderNumber(number).member(member).ordererName(member.getName())
+                .ordererPhone(member.getPhone()).ordererEmail(member.getEmail()).shippingAddress(address)
+                .deliveryMemo("문 앞에 놓아 주세요.").paymentMethod(PaymentMethod.CARD).paymentProvider("여운카드(예시)")
+                .build();
+        for (int i = 0; i < products.size(); i++) {
+            order.addItem(new OrderItem(products.get(i), quantities.get(i)));
+        }
+        order.applyDiscounts(null, 0, 0, ShippingPolicy.feeFor(order.getItemsAmount()));
+        order.markPaid("MOCK-SEED-" + number.substring(number.length() - 4));
+        return order;
+    }
+
+    /** 커미션 게시판 예시: 제안 받는 중 2건, 후기까지 끝난 1건 */
+    private void seedCommissions() {
+        Member seowoo = memberRepository.findByEmail("seowoo@yeoun.example").orElse(null);
+        Member haseo = memberRepository.findByEmail("haseo@yeoun.example").orElse(null);
+        Member walker = memberRepository.findByEmail("walk@yeoun.example").orElse(null);
+        Member atelier = memberRepository.findByEmail("atelier@yeoun.example").orElse(null);
+        if (seowoo == null || haseo == null || walker == null || atelier == null) {
+            return;
+        }
+        Commission done = commissionRepository.save(Commission.builder().requester(haseo)
+                .title("할머니 댁 마당의 무화과나무").incCd("003").moods("여름 오후, 무화과 잎, 햇볕에 데워진 돌담")
+                .description("어릴 때 여름방학마다 가던 할머니 댁 마당에 큰 무화과나무가 있었어요. 잎을 문지르면 나던 "
+                        + "풋풋하고 달큰한 냄새, 햇볕에 데워진 돌담 냄새를 향수로 간직하고 싶어요.")
+                .budget(180_000).desiredDate(LocalDate.now().plusDays(10)).build());
+        CommissionProposal doneProposal = proposalRepository.save(new CommissionProposal(done, atelier, 170_000, 14,
+                "무화과 잎과 우유 같은 무화과 과육을 중심에 두고, 따뜻한 미네랄 노트로 돌담을 표현해 볼게요."));
+        done.accept(doneProposal, PaymentMethod.CARD, "MOCK-SEED-C001");
+        doneProposal.accept();
+        done.deliver("50ml 향수 1병과 시향지 3장을 보내 드렸어요. 첫 향은 잎, 30분 뒤에는 돌담의 온기가 남아요.");
+        done.review(5, 5, "정말 그 마당에 서 있는 기분이었어요. 상담할 때 기억을 하나하나 물어봐 주셔서 감동했어요.");
+
+        Commission open = commissionRepository.save(Commission.builder().requester(seowoo)
+                .title("비 오는 날의 오래된 서재").incCd("001").moods("비, 오래된 책, 나무 책장")
+                .description("비가 오는 날 창문을 조금 열어 둔 서재의 공기를 방에 두고 싶어요. 종이와 나무 냄새, "
+                        + "젖은 흙냄새가 은은하게 섞였으면 좋겠어요. 너무 달지 않게요.")
+                .budget(90_000).desiredDate(LocalDate.now().plusDays(21)).build());
+        proposalRepository.save(new CommissionProposal(open, atelier, 85_000, 10,
+                "시더우드와 파피루스로 책장을, 페트리코 어코드로 비 냄새를 표현한 디퓨저를 제안드려요."));
+
+        commissionRepository.save(Commission.builder().requester(walker)
+                .title("새벽 등산로의 첫 공기").moods("새벽, 솔잎, 차가운 공기")
+                .description("해 뜨기 전 산에 오를 때 처음 들이마시는 차갑고 맑은 공기를 향으로 만들고 싶어요. "
+                        + "향 종류는 조향사님 제안에 맡길게요.")
+                .budget(60_000).desiredDate(LocalDate.now().plusDays(30)).build());
     }
 
     private static Product findByName(List<Product> products, String name) {

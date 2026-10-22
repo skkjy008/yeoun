@@ -233,3 +233,222 @@ export interface YoutubeResult {
   embedUrl: string | null;
   searchUrl: string;
 }
+
+/* ───────── 2단계: 장바구니 · 주문 · 쿠폰 · 마이페이지 · 커미션 ───────── */
+
+export interface CartItem {
+  id: number;
+  productId: number;
+  name: string;
+  category: string;
+  typeLabel: string;
+  volume: string;
+  imageUrl: string;
+  unitPrice: number;
+  quantity: number;
+  lineAmount: number;
+  stock: number;
+  soldOut: boolean;
+  available: boolean;
+}
+
+export interface Cart {
+  items: CartItem[];
+  itemsAmount: number;
+  shippingFee: number;
+  freeShippingThreshold: number;
+}
+
+export interface Coupon {
+  id: number;
+  name: string;
+  discountAmount: number;
+  minOrderAmount: number;
+  expiresAt: string;
+  usedAt: string | null;
+  usable: boolean;
+}
+
+export type OrderStatus = 'PAID' | 'PREPARING' | 'SHIPPING' | 'DELIVERED' | 'CANCELLED';
+export type PaymentMethod = 'CARD' | 'TRANSFER' | 'EASY_PAY';
+
+export interface OrderItem {
+  productId: number;
+  name: string;
+  typeLabel: string;
+  volume: string;
+  imageUrl: string;
+  unitPrice: number;
+  quantity: number;
+  lineAmount: number;
+}
+
+export interface OrderSummary {
+  id: number;
+  orderNumber: string;
+  status: OrderStatus;
+  statusLabel: string;
+  firstItemName: string;
+  firstItemImage: string;
+  itemCount: number;
+  totalQuantity: number;
+  totalAmount: number;
+  cancellable: boolean;
+  memberName: string;
+  createdAt: string;
+  items: OrderItem[];
+}
+
+export interface OrderDetail {
+  id: number;
+  orderNumber: string;
+  status: OrderStatus;
+  statusLabel: string;
+  cancellable: boolean;
+  ordererName: string;
+  ordererPhone: string;
+  ordererEmail: string;
+  recipientName: string;
+  recipientPhone: string;
+  zipCode: string;
+  address1: string;
+  address2: string | null;
+  deliveryMemo: string | null;
+  paymentMethod: PaymentMethod;
+  paymentMethodLabel: string;
+  paymentProvider: string | null;
+  paymentApprovalNo: string;
+  itemsAmount: number;
+  couponDiscount: number;
+  couponName: string | null;
+  pointUsed: number;
+  shippingFee: number;
+  totalAmount: number;
+  earnedPoint: number;
+  createdAt: string;
+  paidAt: string;
+  cancelledAt: string | null;
+  items: OrderItem[];
+}
+
+export interface OrderLine {
+  productId: number;
+  quantity: number;
+}
+
+export interface OrderCreateRequest {
+  items: OrderLine[];
+  fromCart: boolean;
+  orderer: { name: string; phone: string; email: string };
+  shipping: {
+    recipientName: string;
+    recipientPhone: string;
+    zipCode: string;
+    address1: string;
+    address2?: string;
+    memo?: string;
+  };
+  saveAsDefaultAddress: boolean;
+  paymentMethod: PaymentMethod;
+  paymentProvider?: string;
+  couponId?: number | null;
+  usePoint: number;
+  agreed: boolean;
+}
+
+export interface Address {
+  recipientName: string;
+  recipientPhone: string;
+  zipCode: string;
+  address1: string;
+  address2?: string | null;
+}
+
+export interface GradeTier {
+  code: string;
+  label: string;
+  threshold: number;
+}
+
+export interface MyPageSummary {
+  member: Member;
+  marketingAgreed: boolean;
+  point: number;
+  usableCoupons: number;
+  wishlistCount: number;
+  commissionCount: number;
+  grade: {
+    grade: string;
+    gradeLabel: string;
+    nextGrade: string | null;
+    nextGradeLabel: string | null;
+    totalSpent: number;
+    currentThreshold: number;
+    nextThreshold: number | null;
+    remaining: number;
+    tiers: GradeTier[];
+  };
+  orderStatusCounts: Record<OrderStatus, number>;
+  recentOrder: OrderSummary | null;
+  address: Address | null;
+}
+
+export type CommissionStatus = 'OPEN' | 'IN_PROGRESS' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED';
+
+export interface CommissionSummary {
+  id: number;
+  title: string;
+  incCd: string | null;
+  categoryLabel: string;
+  moods: string[];
+  budget: number;
+  desiredDate: string | null;
+  status: CommissionStatus;
+  statusLabel: string;
+  requesterName: string;
+  proposalCount: number;
+  perfumerName: string | null;
+  createdAt: string;
+}
+
+export interface PerfumerCard {
+  memberId: number;
+  name: string;
+  studioName: string;
+  careerYears: number;
+  ratingAverage: number;
+  completedCount: number;
+}
+
+export interface CommissionProposal {
+  id: number;
+  perfumer: PerfumerCard;
+  price: number;
+  workingDays: number;
+  message: string;
+  status: 'PROPOSED' | 'ACCEPTED' | 'DECLINED';
+  createdAt: string;
+}
+
+export interface CommissionDetail {
+  summary: CommissionSummary;
+  description: string;
+  perfumer: PerfumerCard | null;
+  agreedPrice: number | null;
+  paymentMethodLabel: string | null;
+  paidAt: string | null;
+  deliveryNote: string | null;
+  deliveredAt: string | null;
+  review: { scentRating: number; perfumerRating: number; content: string; reviewedAt: string } | null;
+  proposals: CommissionProposal[];
+  viewer: { requester: boolean; perfumer: boolean; assignedPerfumer: boolean; canPropose: boolean; proposed: boolean };
+}
+
+export interface CommissionCreateRequest {
+  title: string;
+  incCd: string;
+  moods: string;
+  description: string;
+  budget: number;
+  desiredDate?: string | null;
+}

@@ -1,5 +1,6 @@
 package com.yeoun.member.service;
 
+import com.yeoun.coupon.service.CouponService;
 import com.yeoun.global.exception.ApiException;
 import com.yeoun.global.security.JwtTokenProvider;
 import com.yeoun.member.domain.Member;
@@ -28,6 +29,7 @@ public class AuthService {
     private final MemberRepository memberRepository;
     private final PerfumerApplicationRepository applicationRepository;
     private final NotificationService notificationService;
+    private final CouponService couponService;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
 
@@ -49,6 +51,7 @@ public class AuthService {
                 .role(Role.USER)
                 .marketingAgreed(request.marketingAgreed())
                 .build());
+        couponService.issueWelcome(member);
 
         PerfumerApplication application = null;
         if (request.perfumer()) {

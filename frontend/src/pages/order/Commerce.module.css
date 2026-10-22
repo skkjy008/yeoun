@@ -1,0 +1,488 @@
+/* 장바구니 · 주문서 · 주문 완료 — Figma '장바구니' / '주문서 작성' 화면 기준 */
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 40px;
+  padding-bottom: 40px;
+}
+.breadcrumb {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--color-muted);
+}
+.breadcrumb a:hover { color: var(--color-brown); }
+.introRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.introCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.title {
+  font-family: var(--font-serif);
+  font-size: 40px;
+  line-height: 1.4;
+}
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--color-muted);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.steps li { display: flex; align-items: center; gap: 14px; }
+.steps li + li::before { content: '→'; color: var(--color-line); }
+.steps .current { color: var(--color-brown); font-weight: 700; }
+.notice {
+  background: var(--color-sand);
+  padding: 14px 20px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--color-poem);
+}
+
+/* 본문 2단 */
+.body {
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+  padding-bottom: 72px;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.aside {
+  flex: 0 0 408px;
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* 장바구니 표 */
+.selectBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-brown);
+  margin: 0;
+}
+.textButton {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.textButton:hover:not(:disabled) { color: var(--color-brown); }
+.table {
+  display: flex;
+  flex-direction: column;
+}
+.tableHead {
+  display: grid;
+  grid-template-columns: 1fr 108px 104px 28px;
+  gap: 24px;
+  align-items: center;
+  height: 44px;
+  border-top: 1px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-ink);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.tableHead span:nth-child(3) { text-align: right; }
+.row {
+  display: grid;
+  grid-template-columns: 1fr 108px 104px 28px;
+  gap: 24px;
+  align-items: center;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.rowInfo {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+.thumb {
+  width: 112px;
+  height: 112px;
+  object-fit: cover;
+  flex: none;
+  background: var(--color-sand);
+}
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.rowName {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  line-height: 1.4;
+}
+.rowMeta {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.rowWarn {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+.qty {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  height: 36px;
+  border: 1px solid var(--color-line);
+  background: var(--color-paper);
+}
+.qty button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-brown);
+}
+.qty button:disabled { color: var(--color-line); }
+.qty span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-family: var(--font-latin);
+}
+.rowPrice {
+  text-align: right;
+  font-size: 14px;
+  font-weight: 500;
+}
+.remove {
+  font-size: 18px;
+  color: var(--color-muted);
+  line-height: 1;
+}
+.remove:hover { color: var(--color-ink); }
+.back {
+  font-size: 13px;
+  color: var(--color-brown);
+  align-self: flex-start;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 72px 0;
+  text-align: center;
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-line);
+}
+.empty p:first-child {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  color: var(--color-ink);
+}
+
+/* 요약 박스 */
+.summary {
+  background: var(--color-bg-soft);
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.summaryTitle {
+  font-family: var(--font-serif);
+  font-size: 26px;
+}
+.summaryRows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+}
+.summaryRows div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.summaryRows dt { color: var(--color-muted); }
+.summaryRows dd { margin: 0; }
+.divider {
+  height: 1px;
+  background: var(--color-line);
+}
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.totalLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.totalLabel { font-size: 15px; }
+.totalAmount {
+  font-size: 26px;
+  font-weight: 500;
+  color: var(--color-brown);
+  font-family: var(--font-latin);
+}
+.totalAmountLarge { font-size: 36px; }
+.totalNote {
+  font-size: 11px;
+  color: var(--color-muted);
+  line-height: 1.8;
+}
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.actions .btn,
+.actions :global(.btn) { width: 100%; height: 54px; }
+.consents {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 12px;
+}
+.consents .check { font-size: 12px; align-items: flex-start; line-height: 1.6; }
+
+/* 안내 띠 */
+.guide {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 40px;
+  padding-top: 40px;
+  padding-bottom: 80px;
+  border-top: 1px solid var(--color-line);
+}
+.guide h3 {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  margin-bottom: 12px;
+}
+.guide p {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--color-muted);
+}
+.asideNote {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.asideNote h3 {
+  font-family: var(--font-serif);
+  font-size: 21px;
+}
+.asideNote p {
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--color-muted);
+}
+
+/* 주문서 섹션 */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.sectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--color-ink);
+}
+.sectionHead h2 {
+  font-family: var(--font-serif);
+  font-size: 26px;
+}
+.sectionHead span {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.field label,
+.fieldLabel {
+  font-size: 13px;
+}
+.required { color: var(--color-brown); margin-left: 2px; }
+.zip {
+  display: grid;
+  grid-template-columns: 1fr 152px;
+  gap: 12px;
+}
+.zip :global(.btn) { height: 50px; }
+.select {
+  appearance: none;
+  background: var(--color-paper)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2366513f' stroke-width='1.6'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 16px center;
+  padding-right: 40px;
+}
+.lineItems {
+  display: flex;
+  flex-direction: column;
+}
+.lineItem {
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.lineItem img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  background: var(--color-sand);
+}
+.lineName { font-size: 14px; font-weight: 500; }
+.lineMeta { font-size: 11px; color: var(--color-muted); margin-top: 4px; }
+.linePrice { font-size: 13px; }
+.lineTotal {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 16px;
+  font-size: 13px;
+}
+.lineTotal strong { font-weight: 500; }
+.methods {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.method {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--color-line);
+  background: var(--color-paper);
+  font-size: 13px;
+}
+.method[aria-checked='true'] {
+  background: var(--color-sand);
+  border-color: var(--color-brown);
+  color: var(--color-brown);
+  font-weight: 500;
+}
+.discountRow {
+  display: grid;
+  grid-template-columns: 1fr 152px;
+  gap: 12px;
+}
+.discountRow :global(.btn) { height: 50px; }
+
+/* 주문 완료 */
+.complete {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  padding-top: 24px;
+  padding-bottom: 48px;
+}
+.complete .title { font-size: 34px; }
+.completeNumber {
+  font-family: var(--font-latin);
+  font-size: 14px;
+  color: var(--color-brown);
+  letter-spacing: 0.04em;
+}
+.completeBody {
+  display: grid;
+  grid-template-columns: 1fr 408px;
+  gap: 48px;
+  align-items: flex-start;
+  padding-bottom: 80px;
+}
+.infoList {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px 24px;
+  font-size: 13px;
+  margin: 0;
+}
+.infoList dt { color: var(--color-muted); }
+.infoList dd { margin: 0; line-height: 1.7; }
+
+@media (max-width: 1100px) {
+  .body,
+  .completeBody { flex-direction: column; display: flex; align-items: stretch; }
+  .aside { flex: none; width: 100%; position: static; }
+  .guide { grid-template-columns: 1fr; gap: 28px; }
+}
+@media (max-width: 720px) {
+  .title { font-size: 28px; }
+  .tableHead { display: none; }
+  .row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'info remove' 'qty price';
+    gap: 14px 12px;
+  }
+  .rowInfo { grid-area: info; align-items: flex-start; }
+  .row > .qty { grid-area: qty; width: 108px; }
+  .rowPrice { grid-area: price; }
+  .remove { grid-area: remove; align-self: flex-start; }
+  .thumb { width: 84px; height: 84px; }
+  .rowName { font-size: 17px; }
+  .pair,
+  .zip,
+  .discountRow { grid-template-columns: 1fr; }
+  .methods { grid-template-columns: 1fr; }
+  .method { height: 52px; }
+  .summary { padding: 24px 20px; }
+  .infoList { grid-template-columns: 96px 1fr; }
+}

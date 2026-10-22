@@ -1,11 +1,14 @@
 package com.yeoun.product.repository;
 
 import com.yeoun.product.domain.Product;
+import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -40,6 +43,11 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     List<Product> findTop4ByActiveTrueOrderByPopularityDesc();
 
     List<Product> findTop4ByActiveTrueAndNewArrivalTrueOrderByIdAsc();
+
+    /** 주문 시 재고 차감을 위해 비관적 쓰기 잠금으로 조회합니다. (동시 주문 시 초과 판매 방지) */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Product p where p.id in :ids order by p.id")
+    List<Product> findAllForUpdate(@Param("ids") Collection<Long> ids);
 
     @EntityGraph(attributePaths = "tags")
     List<Product> findAllByActiveTrue();

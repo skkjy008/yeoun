@@ -17,6 +17,9 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     @EntityGraph(attributePaths = {"member", "product"})
     List<Review> findTop3ByFeaturedTrueOrderByCreatedAtDescIdDesc();
 
+    @EntityGraph(attributePaths = {"member", "product"})
+    List<Review> findAllByMemberIdOrderByCreatedAtDescIdDesc(Long memberId);
+
     long countByProductId(Long productId);
 
     @Query("select coalesce(avg(r.rating), 0) from Review r where r.product.id = :productId")

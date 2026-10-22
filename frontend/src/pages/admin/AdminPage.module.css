@@ -301,3 +301,11 @@
     grid-template-columns: 1fr;
   }
 }
+
+.linkButton {
+  font-size: 12px;
+  color: var(--color-brown);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linkButton:hover { color: var(--color-brown-dark); }

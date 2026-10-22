@@ -82,11 +82,13 @@ const members = [
   { id: 4, email: 'haseo@yeoun.example', password: 'yeoun1234!', name: '이하서', phone: '010-1234-5678', role: 'USER', grade: 'PLATINUM' },
   { id: 5, email: 'walk@yeoun.example', password: 'yeoun1234!', name: '산책하는이', phone: '010-1234-5678', role: 'USER', grade: 'BRONZE' },
   { id: 6, email: 'newnose@yeoun.example', password: 'yeoun1234!', name: '한지향', phone: '010-1234-5678', role: 'USER', grade: 'BRONZE' },
+  { id: 7, email: 'atelier@yeoun.example', password: 'yeoun1234!', name: '정소향', phone: '010-1234-5678', role: 'PERFUMER', grade: 'GOLD' },
 ].map((m) => ({ marketingAgreed: true, createdAt: now(), ...m }));
 const GRADE_LABEL = { BRONZE: '브론즈', SILVER: '실버', GOLD: '골드', PLATINUM: '플래티넘', DIAMOND: '다이아' };
 
-let appSeq = 2;
+let appSeq = 3;
 const applications = [
+  { id: 2, memberId: 7, studioName: '아틀리에 소향', careerYears: 7, certification: '조향사 자격증 (예시)', portfolioUrl: 'https://example.com/sohyang', introduction: '비 오는 날의 숲과 오래된 서재의 향을 즐겨 만듭니다.', status: 'APPROVED', rejectReason: null, createdAt: now(), reviewedAt: now() },
   { id: 1, memberId: 6, studioName: '지향 랩', careerYears: 2, certification: '향료 아카데미 수료 (예시)', portfolioUrl: 'https://example.com/jihyang', introduction: '판타지 세계관 속 장소를 향으로 옮기는 작업을 하고 있어요.', status: 'PENDING', rejectReason: null, createdAt: now(), reviewedAt: null },
 ];
 let notiSeq = 2;
@@ -153,6 +155,328 @@ async function readBody(req) {
   let data = '';
   for await (const chunk of req) data += chunk;
   return data ? JSON.parse(data) : {};
+}
+
+
+/* ───────── 2단계: 장바구니 · 주문 · 쿠폰 · 찜 · 마이페이지 · 커미션 ───────── */
+members.forEach((x) => {
+  x.point = 0;
+  x.address = null;
+});
+const STATUS_LABEL = { PAID: '결제 완료', PREPARING: '상품 준비 중', SHIPPING: '배송 중', DELIVERED: '배송 완료', CANCELLED: '주문 취소' };
+const NEXT_STATUS = { PAID: 'PREPARING', PREPARING: 'SHIPPING', SHIPPING: 'DELIVERED' };
+const METHOD_LABEL = { CARD: '신용 / 체크카드', TRANSFER: '계좌이체', EASY_PAY: '간편결제' };
+const GRADES = [['BRONZE', 0], ['SILVER', 100000], ['GOLD', 300000], ['PLATINUM', 600000], ['DIAMOND', 1000000]];
+const shippingFor = (amount) => (amount === 0 || amount >= 50000 ? 0 : 3000);
+const daysFromNow = (d) => new Date(Date.now() + d * 86400000).toISOString();
+
+const sseClients = new Map(); // memberId -> Set<res>
+function notify(recipientId, type, message, link) {
+  const n = { id: notiSeq++, recipientId, type, message, link, read: false, createdAt: now() };
+  notifications.unshift(n);
+  const { recipientId: _r, ...dto } = n;
+  sseClients.get(recipientId)?.forEach((c) => c.write(`event:notification\ndata:${JSON.stringify(dto)}\n\n`));
+}
+function stream(req, res, me) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  const unreadCount = notifications.filter((n) => n.recipientId === me.id && !n.read).length;
+  res.write(`event:connected\ndata:${JSON.stringify({ unreadCount })}\n\n`);
+  if (!sseClients.has(me.id)) sseClients.set(me.id, new Set());
+  sseClients.get(me.id).add(res);
+  const ping = setInterval(() => res.write(':ping\n\n'), 25000);
+  req.on('close', () => {
+    clearInterval(ping);
+    sseClients.get(me.id)?.delete(res);
+  });
+  return undefined;
+}
+
+let couponSeq = 1;
+const coupons = [];
+function issueWelcome(member) {
+  if (member.role === 'ADMIN') return;
+  coupons.push({ id: couponSeq++, memberId: member.id, name: '첫 향을 위한 환영 쿠폰', discountAmount: 3000, minOrderAmount: 30000, expiresAt: daysFromNow(30), usedAt: null });
+}
+members.forEach(issueWelcome);
+const couponDto = ({ memberId: _m, ...c }) => ({ ...c, usable: !c.usedAt && new Date(c.expiresAt) > new Date() });
+
+let cartSeq = 1;
+const carts = []; // {id, memberId, productId, quantity, createdAt}
+const cartDto = (memberId) => {
+  const items = carts
+    .filter((c) => c.memberId === memberId)
+    .sort((a, b) => b.id - a.id)
+    .map((c) => {
+      const p = products.find((x) => x.id === c.productId);
+      const available = p.active && p.stock > 0 && p.stock >= c.quantity;
+      return { id: c.id, productId: p.id, name: p.name, category: LABEL[p.incCd], typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice: p.price, quantity: c.quantity, lineAmount: p.price * c.quantity, stock: p.stock, soldOut: p.stock <= 0, available };
+    });
+  const itemsAmount = items.filter((i) => i.available).reduce((s, i) => s + i.lineAmount, 0);
+  return { items, itemsAmount, shippingFee: shippingFor(itemsAmount), freeShippingThreshold: 50000 };
+};
+
+const wishes = []; // {memberId, productId, createdAt}
+
+let orderSeq = 1;
+const orders = [];
+const itemDto = (i) => ({ ...i });
+const orderSummary = (o) => ({
+  id: o.id, orderNumber: o.orderNumber, status: o.status, statusLabel: STATUS_LABEL[o.status], firstItemName: o.items[0]?.name, firstItemImage: o.items[0]?.imageUrl,
+  itemCount: o.items.length, totalQuantity: o.items.reduce((s, i) => s + i.quantity, 0), totalAmount: o.totalAmount, cancellable: o.status === 'PAID',
+  memberName: members.find((x) => x.id === o.memberId)?.name, createdAt: o.createdAt, items: o.items.map(itemDto),
+});
+const orderDetail = (o) => ({
+  ...o, statusLabel: STATUS_LABEL[o.status], cancellable: o.status === 'PAID', paymentMethodLabel: METHOD_LABEL[o.paymentMethod],
+  couponName: o.couponId ? coupons.find((c) => c.id === o.couponId)?.name : null, items: o.items.map(itemDto),
+});
+function cancelOrder(o) {
+  o.status = 'CANCELLED';
+  o.cancelledAt = now();
+  o.items.forEach((i) => (products.find((p) => p.id === i.productId).stock += i.quantity));
+  if (o.couponId) coupons.find((c) => c.id === o.couponId).usedAt = null;
+  members.find((x) => x.id === o.memberId).point += o.pointUsed;
+}
+function createOrder(memberId, body, status = 'PAID', createdAt = now(), number = null) {
+  const items = body.items.map(({ productId, quantity }) => {
+    const p = products.find((x) => x.id === productId && x.active);
+    if (!p) throw Object.assign(new Error('주문할 수 없는 상품이 포함되어 있습니다.'), { status: 404 });
+    if (quantity > p.stock) throw Object.assign(new Error(p.stock === 0 ? `'${p.name}'은(는) 품절되었어요.` : `'${p.name}'의 남은 재고는 ${p.stock}개입니다.`), { status: 409 });
+    return { productId: p.id, name: p.name, typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice: p.price, quantity, lineAmount: p.price * quantity };
+  });
+  const itemsAmount = items.reduce((s, i) => s + i.lineAmount, 0);
+  let couponDiscount = 0;
+  if (body.couponId) {
+    const c = coupons.find((x) => x.id === body.couponId && x.memberId === memberId);
+    if (!c || c.usedAt) throw Object.assign(new Error('이미 사용했거나 기간이 지난 쿠폰입니다.'), { status: 400 });
+    if (itemsAmount < c.minOrderAmount) throw Object.assign(new Error('쿠폰 최소 주문 금액을 확인해 주세요.'), { status: 400 });
+    c.usedAt = now();
+    couponDiscount = Math.min(c.discountAmount, itemsAmount);
+  }
+  const member = members.find((x) => x.id === memberId);
+  const pointUsed = body.usePoint ?? 0;
+  if (pointUsed > member.point || pointUsed > itemsAmount - couponDiscount) throw Object.assign(new Error('사용할 수 있는 적립금을 초과했습니다.'), { status: 400 });
+  member.point -= pointUsed;
+  items.forEach((i) => (products.find((p) => p.id === i.productId).stock -= i.quantity));
+  const shippingFee = shippingFor(itemsAmount);
+  const date = createdAt.slice(0, 10).replace(/-/g, '');
+  const o = {
+    id: orderSeq++, memberId, orderNumber: number ?? `YN-${date}-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`, status,
+    ordererName: body.orderer.name, ordererPhone: body.orderer.phone, ordererEmail: body.orderer.email,
+    recipientName: body.shipping.recipientName, recipientPhone: body.shipping.recipientPhone, zipCode: body.shipping.zipCode,
+    address1: body.shipping.address1, address2: body.shipping.address2 ?? null, deliveryMemo: body.shipping.memo || null,
+    paymentMethod: body.paymentMethod, paymentProvider: body.paymentProvider ?? null, paymentApprovalNo: `MOCK-${body.paymentMethod[0]}-${Math.random().toString(16).slice(2, 10).toUpperCase()}`,
+    couponId: body.couponId ?? null, itemsAmount, couponDiscount, pointUsed, shippingFee, totalAmount: itemsAmount - couponDiscount - pointUsed + shippingFee,
+    earnedPoint: 0, createdAt, paidAt: createdAt, cancelledAt: null, items,
+  };
+  orders.push(o);
+  if (body.saveAsDefaultAddress) member.address = { recipientName: o.recipientName, recipientPhone: o.recipientPhone, zipCode: o.zipCode, address1: o.address1, address2: o.address2 };
+  return o;
+}
+// 데모 회원(김여연) 주문: 배송 완료 1건, 배송 중 1건
+{
+  const yeonAddress = { recipientName: '김여연', recipientPhone: '010-1234-5678', zipCode: '04524', address1: '서울특별시 중구 세종대로 110', address2: '여운빌 302호', memo: '문 앞에 놓아 주세요.' };
+  const base = { orderer: { name: '김여연', phone: '010-1234-5678', email: 'yeon@yeoun.example' }, shipping: yeonAddress, paymentMethod: 'CARD', paymentProvider: '여운카드(예시)', saveAsDefaultAddress: true };
+  const delivered = createOrder(2, { ...base, items: [{ productId: 1, quantity: 1 }, { productId: 10, quantity: 2 }] }, 'DELIVERED', daysFromNow(-8), 'YN-20261012-0417');
+  delivered.earnedPoint = Math.floor(delivered.itemsAmount / 100);
+  members[1].point += delivered.earnedPoint;
+  createOrder(2, { ...base, items: [{ productId: 19, quantity: 1 }, { productId: 28, quantity: 1 }] }, 'SHIPPING', daysFromNow(-2), 'YN-20261018-2731');
+  wishes.push({ memberId: 2, productId: 2, createdAt: now() }, { memberId: 2, productId: 21, createdAt: now() });
+}
+
+let commissionSeq = 1;
+let proposalSeq = 1;
+const commissions = [];
+const proposals = [];
+const perfumerCard = (memberId) => {
+  const mem = members.find((x) => x.id === memberId);
+  const app = applications.find((a) => a.memberId === memberId);
+  const rated = commissions.filter((c) => c.perfumerId === memberId && c.perfumerRating);
+  return {
+    memberId, name: mem.name, studioName: app?.studioName ?? mem.name, careerYears: app?.careerYears ?? 0,
+    ratingAverage: rated.length ? Math.round((rated.reduce((s, c) => s + c.perfumerRating, 0) / rated.length) * 10) / 10 : 0,
+    completedCount: commissions.filter((c) => c.perfumerId === memberId && c.status === 'COMPLETED').length,
+  };
+};
+const C_LABEL = { OPEN: '제안 받는 중', IN_PROGRESS: '제작 중', DELIVERED: '전달 완료', COMPLETED: '후기 완료', CANCELLED: '의뢰 취소' };
+const commissionSummary = (c) => ({
+  id: c.id, title: c.title, incCd: c.incCd, categoryLabel: c.incCd ? LABEL[c.incCd] : '조향사 제안에 맡김', moods: (c.moods ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  budget: c.budget, desiredDate: c.desiredDate, status: c.status, statusLabel: C_LABEL[c.status], requesterName: mask(members.find((x) => x.id === c.requesterId).name),
+  proposalCount: proposals.filter((p) => p.commissionId === c.id).length, perfumerName: c.perfumerId ? members.find((x) => x.id === c.perfumerId).name : null, createdAt: c.createdAt,
+});
+const commissionDetail = (c, me) => {
+  const isRequester = c.requesterId === me.id;
+  const assigned = c.perfumerId === me.id;
+  const own = proposals.filter((p) => p.commissionId === c.id);
+  const proposed = own.some((p) => p.perfumerId === me.id);
+  const showPrivate = isRequester || assigned || me.role === 'ADMIN';
+  return {
+    summary: commissionSummary(c), description: c.description, perfumer: c.perfumerId ? perfumerCard(c.perfumerId) : null, agreedPrice: c.agreedPrice ?? null,
+    paymentMethodLabel: showPrivate && c.paymentMethod ? METHOD_LABEL[c.paymentMethod] : null, paidAt: c.paidAt ?? null,
+    deliveryNote: showPrivate ? c.deliveryNote ?? null : null, deliveredAt: c.deliveredAt ?? null,
+    review: c.reviewedAt ? { scentRating: c.scentRating, perfumerRating: c.perfumerRating, content: c.reviewContent, reviewedAt: c.reviewedAt } : null,
+    proposals: own.filter((p) => isRequester || me.role === 'ADMIN' || p.perfumerId === me.id).map((p) => ({ id: p.id, perfumer: perfumerCard(p.perfumerId), price: p.price, workingDays: p.workingDays, message: p.message, status: p.status, createdAt: p.createdAt })),
+    viewer: { requester: isRequester, perfumer: me.role === 'PERFUMER', assignedPerfumer: assigned, canPropose: me.role === 'PERFUMER' && !isRequester && !proposed && c.status === 'OPEN', proposed },
+  };
+};
+{
+  const done = { id: commissionSeq++, requesterId: 4, title: '할머니 댁 마당의 무화과나무', incCd: '003', moods: '여름 오후, 무화과 잎, 햇볕에 데워진 돌담', description: '어릴 때 여름방학마다 가던 할머니 댁 마당에 큰 무화과나무가 있었어요. 잎을 문지르면 나던 풋풋하고 달큰한 냄새, 햇볕에 데워진 돌담 냄새를 향수로 간직하고 싶어요.', budget: 180000, desiredDate: daysFromNow(10).slice(0, 10), status: 'COMPLETED', perfumerId: 7, agreedPrice: 170000, paymentMethod: 'CARD', paidAt: daysFromNow(-12), deliveryNote: '50ml 향수 1병과 시향지 3장을 보내 드렸어요. 첫 향은 잎, 30분 뒤에는 돌담의 온기가 남아요.', deliveredAt: daysFromNow(-3), scentRating: 5, perfumerRating: 5, reviewContent: '정말 그 마당에 서 있는 기분이었어요. 상담할 때 기억을 하나하나 물어봐 주셔서 감동했어요.', reviewedAt: daysFromNow(-1), createdAt: daysFromNow(-14) };
+  commissions.push(done);
+  proposals.push({ id: proposalSeq++, commissionId: done.id, perfumerId: 7, price: 170000, workingDays: 14, message: '무화과 잎과 우유 같은 무화과 과육을 중심에 두고, 따뜻한 미네랄 노트로 돌담을 표현해 볼게요.', status: 'ACCEPTED', createdAt: daysFromNow(-13) });
+  const open = { id: commissionSeq++, requesterId: 3, title: '비 오는 날의 오래된 서재', incCd: '001', moods: '비, 오래된 책, 나무 책장', description: '비가 오는 날 창문을 조금 열어 둔 서재의 공기를 방에 두고 싶어요. 종이와 나무 냄새, 젖은 흙냄새가 은은하게 섞였으면 좋겠어요. 너무 달지 않게요.', budget: 90000, desiredDate: daysFromNow(21).slice(0, 10), status: 'OPEN', createdAt: daysFromNow(-2) };
+  commissions.push(open);
+  proposals.push({ id: proposalSeq++, commissionId: open.id, perfumerId: 7, price: 85000, workingDays: 10, message: '시더우드와 파피루스로 책장을, 페트리코 어코드로 비 냄새를 표현한 디퓨저를 제안드려요.', status: 'PROPOSED', createdAt: daysFromNow(-1) });
+  commissions.push({ id: commissionSeq++, requesterId: 5, title: '새벽 등산로의 첫 공기', incCd: null, moods: '새벽, 솔잎, 차가운 공기', description: '해 뜨기 전 산에 오를 때 처음 들이마시는 차갑고 맑은 공기를 향으로 만들고 싶어요. 향 종류는 조향사님 제안에 맡길게요.', budget: 60000, desiredDate: daysFromNow(30).slice(0, 10), status: 'OPEN', createdAt: daysFromNow(-1) });
+}
+
+async function shopRoutes({ method, path, q, me, req, res }) {
+  let m;
+  const err = (e) => fail(res, e.status ?? 400, 'BAD_REQUEST', e.message);
+  // 장바구니
+  if (method === 'GET' && path === '/api/cart') return send(res, 200, cartDto(me.id));
+  if (method === 'GET' && path === '/api/cart/count') return send(res, 200, { count: carts.filter((c) => c.memberId === me.id).length });
+  if (method === 'POST' && path === '/api/cart/items') {
+    const body = await readBody(req);
+    const p = products.find((x) => x.id === body.productId && x.active);
+    if (!p) return fail(res, 404, 'NOT_FOUND', '상품을 찾을 수 없습니다.');
+    if (p.stock <= 0) return fail(res, 400, 'BAD_REQUEST', '품절된 상품은 담을 수 없어요.');
+    const existing = carts.find((c) => c.memberId === me.id && c.productId === p.id);
+    if (existing) existing.quantity = Math.min(10, existing.quantity + body.quantity);
+    else carts.push({ id: cartSeq++, memberId: me.id, productId: p.id, quantity: body.quantity, createdAt: now() });
+    return send(res, 200, cartDto(me.id));
+  }
+  if (method === 'PATCH' && (m = path.match(/^\/api\/cart\/items\/(\d+)$/))) {
+    const item = carts.find((c) => c.id === Number(m[1]) && c.memberId === me.id);
+    if (!item) return fail(res, 404, 'NOT_FOUND', '장바구니 상품을 찾을 수 없습니다.');
+    item.quantity = Math.max(1, Math.min(10, (await readBody(req)).quantity));
+    return send(res, 200, cartDto(me.id));
+  }
+  if (method === 'DELETE' && path === '/api/cart/items') {
+    const ids = (q.ids ?? '').split(',').map(Number);
+    for (let i = carts.length - 1; i >= 0; i--) if (carts[i].memberId === me.id && ids.includes(carts[i].id)) carts.splice(i, 1);
+    return send(res, 200, cartDto(me.id));
+  }
+  // 찜
+  if (method === 'GET' && path === '/api/wishlist') return send(res, 200, wishes.filter((w) => w.memberId === me.id).map((w) => summary(products.find((p) => p.id === w.productId))));
+  if (method === 'GET' && path === '/api/wishlist/ids') return send(res, 200, wishes.filter((w) => w.memberId === me.id).map((w) => w.productId));
+  if ((m = path.match(/^\/api\/wishlist\/(\d+)$/))) {
+    const productId = Number(m[1]);
+    const idx = wishes.findIndex((w) => w.memberId === me.id && w.productId === productId);
+    if (method === 'PUT' && idx < 0) wishes.unshift({ memberId: me.id, productId, createdAt: now() });
+    if (method === 'DELETE' && idx >= 0) wishes.splice(idx, 1);
+    return send(res, 204);
+  }
+  // 쿠폰
+  if (method === 'GET' && path === '/api/coupons/me') return send(res, 200, coupons.filter((c) => c.memberId === me.id).map(couponDto));
+  // 주문
+  if (method === 'POST' && path === '/api/orders') {
+    const body = await readBody(req);
+    if (!body.agreed) return fail(res, 400, 'BAD_REQUEST', '주문 내용 확인 및 결제 진행에 동의해 주세요.');
+    try {
+      const o = createOrder(me.id, body);
+      if (body.fromCart) for (let i = carts.length - 1; i >= 0; i--) if (carts[i].memberId === me.id && o.items.some((it) => it.productId === carts[i].productId)) carts.splice(i, 1);
+      notify(me.id, 'ORDER_STATUS', `주문 ${o.orderNumber} 결제가 완료되었어요. 향을 정성껏 준비할게요.`, `/mypage/orders/${o.id}`);
+      return send(res, 201, orderDetail(o));
+    } catch (e) {
+      return err(e);
+    }
+  }
+  if (method === 'GET' && path === '/api/orders') {
+    const list = orders.filter((o) => o.memberId === me.id && (!q.status || o.status === q.status)).sort((a, b) => b.id - a.id);
+    return send(res, 200, page(list.map(orderSummary), Number(q.page ?? 0), Number(q.size ?? 10)));
+  }
+  if ((m = path.match(/^\/api\/orders\/(\d+)(\/cancel)?$/))) {
+    const o = orders.find((x) => x.id === Number(m[1]));
+    if (!o) return fail(res, 404, 'NOT_FOUND', '주문을 찾을 수 없습니다.');
+    if (o.memberId !== me.id && me.role !== 'ADMIN') return fail(res, 403, 'FORBIDDEN', '본인의 주문만 조회할 수 있습니다.');
+    if (method === 'POST' && m[2]) {
+      if (o.status !== 'PAID') return fail(res, 400, 'BAD_REQUEST', '결제 완료 상태에서만 바로 취소할 수 있어요.');
+      cancelOrder(o);
+    }
+    return send(res, 200, orderDetail(o));
+  }
+  // 마이페이지
+  if (method === 'GET' && path === '/api/members/me/summary') {
+    const mine = orders.filter((o) => o.memberId === me.id);
+    const counts = Object.fromEntries(Object.keys(STATUS_LABEL).map((s) => [s, mine.filter((o) => o.status === s).length]));
+    const totalSpent = mine.filter((o) => o.status === 'DELIVERED').reduce((s, o) => s + o.totalAmount, 0);
+    const gi = GRADES.findIndex(([g]) => g === me.grade);
+    const next = GRADES[gi + 1];
+    const recent = [...mine].filter((o) => o.status !== 'CANCELLED').sort((a, b) => b.id - a.id)[0];
+    return send(res, 200, {
+      member: memberDto(me), marketingAgreed: me.marketingAgreed, point: me.point, usableCoupons: coupons.filter((c) => c.memberId === me.id).map(couponDto).filter((c) => c.usable).length,
+      wishlistCount: wishes.filter((w) => w.memberId === me.id).length, commissionCount: commissions.filter((c) => c.requesterId === me.id).length,
+      grade: { grade: me.grade, gradeLabel: GRADE_LABEL[me.grade], nextGrade: next?.[0] ?? null, nextGradeLabel: next ? GRADE_LABEL[next[0]] : null, totalSpent, currentThreshold: GRADES[gi][1], nextThreshold: next?.[1] ?? null, remaining: next ? Math.max(0, next[1] - totalSpent) : 0, tiers: GRADES.map(([code, threshold]) => ({ code, label: GRADE_LABEL[code], threshold })) },
+      orderStatusCounts: counts, recentOrder: recent ? orderSummary(recent) : null, address: me.address,
+    });
+  }
+  if (method === 'PUT' && path === '/api/members/me') {
+    Object.assign(me, await readBody(req));
+    return send(res, 200, memberDto(me));
+  }
+  if (method === 'PATCH' && path === '/api/members/me/password') {
+    const body = await readBody(req);
+    if (body.currentPassword !== me.password) return fail(res, 400, 'BAD_REQUEST', '현재 비밀번호가 일치하지 않습니다.');
+    me.password = body.newPassword;
+    return send(res, 204);
+  }
+  if (method === 'PUT' && path === '/api/members/me/address') {
+    me.address = await readBody(req);
+    return send(res, 200, me.address);
+  }
+  if (method === 'GET' && path === '/api/reviews/me') return send(res, 200, reviews.filter((r) => r.memberId === me.id).map(reviewDto));
+  // 커미션
+  if (method === 'GET' && path === '/api/commissions/me') return send(res, 200, commissions.filter((c) => c.requesterId === me.id).sort((a, b) => b.id - a.id).map(commissionSummary));
+  if (method === 'GET' && path === '/api/commissions/proposed') return send(res, 200, proposals.filter((p) => p.perfumerId === me.id).map((p) => commissionSummary(commissions.find((c) => c.id === p.commissionId))));
+  if (method === 'POST' && path === '/api/commissions') {
+    const body = await readBody(req);
+    if (!body.title || (body.description ?? '').length < 20) return fail(res, 400, 'BAD_REQUEST', '원하는 향을 20자 이상 들려주세요.');
+    const c = { id: commissionSeq++, requesterId: me.id, title: body.title, incCd: body.incCd || null, moods: body.moods, description: body.description, budget: body.budget, desiredDate: body.desiredDate ?? null, status: 'OPEN', createdAt: now() };
+    commissions.push(c);
+    members.filter((x) => x.role === 'PERFUMER' && x.id !== me.id).forEach((x) => notify(x.id, 'COMMISSION_REQUEST', `새 커미션 의뢰 '${c.title}' · 예산 ${c.budget.toLocaleString()}원`, `/custom/${c.id}`));
+    return send(res, 201, commissionDetail(c, me));
+  }
+  if ((m = path.match(/^\/api\/commissions\/(\d+)(?:\/(proposals|deliver|review|cancel)(?:\/(\d+)\/accept)?)?$/))) {
+    const c = commissions.find((x) => x.id === Number(m[1]));
+    if (!c) return fail(res, 404, 'NOT_FOUND', '의뢰를 찾을 수 없습니다.');
+    const action = m[2];
+    if (method === 'GET' && !action) return send(res, 200, commissionDetail(c, me));
+    const body = await readBody(req);
+    if (action === 'proposals' && !m[3]) {
+      if (me.role !== 'PERFUMER') return fail(res, 403, 'FORBIDDEN', '인증된 조향사만 제안할 수 있어요.');
+      if (proposals.some((p) => p.commissionId === c.id && p.perfumerId === me.id)) return fail(res, 409, 'CONFLICT', '이미 제안을 보낸 의뢰입니다.');
+      proposals.push({ id: proposalSeq++, commissionId: c.id, perfumerId: me.id, price: body.price, workingDays: body.workingDays, message: body.message, status: 'PROPOSED', createdAt: now() });
+      notify(c.requesterId, 'COMMISSION_PROPOSAL', `'${c.title}' 의뢰에 새 제안이 도착했어요.`, `/custom/${c.id}`);
+      return send(res, 201, commissionDetail(c, me));
+    }
+    if (action === 'proposals' && m[3]) {
+      if (c.requesterId !== me.id) return fail(res, 403, 'FORBIDDEN', '의뢰자만 할 수 있어요.');
+      if (c.status !== 'OPEN') return fail(res, 400, 'BAD_REQUEST', '제안을 받는 중인 의뢰만 조향사를 선택할 수 있어요.');
+      const chosen = proposals.find((p) => p.id === Number(m[3]) && p.commissionId === c.id);
+      proposals.filter((p) => p.commissionId === c.id).forEach((p) => (p.status = p === chosen ? 'ACCEPTED' : 'DECLINED'));
+      Object.assign(c, { status: 'IN_PROGRESS', perfumerId: chosen.perfumerId, agreedPrice: chosen.price, paymentMethod: body.paymentMethod, paidAt: now() });
+      notify(chosen.perfumerId, 'COMMISSION_ACCEPTED', `'${c.title}' 의뢰가 선결제되었어요. 제작을 시작해 주세요.`, `/custom/${c.id}`);
+      return send(res, 200, commissionDetail(c, me));
+    }
+    if (action === 'deliver') {
+      if (c.perfumerId !== me.id || c.status !== 'IN_PROGRESS') return fail(res, 400, 'BAD_REQUEST', '제작 중인 의뢰만 전달할 수 있어요.');
+      Object.assign(c, { status: 'DELIVERED', deliveryNote: body.note, deliveredAt: now() });
+      notify(c.requesterId, 'COMMISSION_DELIVERED', `'${c.title}' 향이 완성되어 전달되었어요. 후기를 남겨 주세요.`, `/custom/${c.id}`);
+      return send(res, 200, commissionDetail(c, me));
+    }
+    if (action === 'review') {
+      if (c.requesterId !== me.id || c.status !== 'DELIVERED') return fail(res, 400, 'BAD_REQUEST', '향을 전달받은 뒤에 후기를 남길 수 있어요.');
+      Object.assign(c, { status: 'COMPLETED', scentRating: body.scentRating, perfumerRating: body.perfumerRating, reviewContent: body.content, reviewedAt: now() });
+      notify(c.perfumerId, 'COMMISSION_REVIEWED', `'${c.title}' 의뢰에 후기가 남겨졌어요.`, `/custom/${c.id}`);
+      return send(res, 200, commissionDetail(c, me));
+    }
+    if (action === 'cancel') {
+      if (c.requesterId !== me.id || c.status !== 'OPEN') return fail(res, 400, 'BAD_REQUEST', '조향사를 선택하기 전까지만 의뢰를 취소할 수 있어요.');
+      c.status = 'CANCELLED';
+      proposals.filter((p) => p.commissionId === c.id).forEach((p) => (p.status = 'DECLINED'));
+      return send(res, 200, commissionDetail(c, me));
+    }
+  }
+  return false;
 }
 
 const server = createServer(async (req, res) => {
@@ -225,8 +549,9 @@ const server = createServer(async (req, res) => {
     if (method === 'POST' && path === '/api/auth/signup') {
       const body = await readBody(req);
       if (members.some((x) => x.email === body.email)) return fail(res, 409, 'CONFLICT', '이미 가입된 이메일입니다.');
-      const member = { id: memberSeq++, email: body.email, password: body.password, name: body.name, phone: body.phone, role: 'USER', grade: 'BRONZE', marketingAgreed: body.marketingAgreed, createdAt: now() };
+      const member = { id: memberSeq++, email: body.email, password: body.password, name: body.name, phone: body.phone, role: 'USER', grade: 'BRONZE', marketingAgreed: body.marketingAgreed, createdAt: now(), point: 0, address: null };
       members.push(member);
+      issueWelcome(member);
       if (body.perfumer) {
         applications.push({ id: appSeq++, memberId: member.id, ...body.perfumerApplication, status: 'PENDING', rejectReason: null, createdAt: now(), reviewedAt: null });
         notifications.unshift({ id: notiSeq++, recipientId: 1, type: 'PERFUMER_APPLICATION', message: `${member.name} 님이 조향사 인증을 요청했습니다.`, link: '/admin/perfumers', read: false, createdAt: now() });
@@ -237,7 +562,14 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { query: q.q, videoId: null, embedUrl: null, searchUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent(q.q)}` });
     }
 
+    if (method === 'GET' && path === '/api/commissions') {
+      const list = commissions.filter((c) => !q.status || c.status === q.status).sort((a, b) => b.id - a.id);
+      return send(res, 200, page(list.map(commissionSummary), Number(q.page ?? 0), Number(q.size ?? 12)));
+    }
     if (!me) return fail(res, 401, 'UNAUTHORIZED', '로그인이 필요합니다.');
+    if (method === 'GET' && path === '/api/notifications/stream') return stream(req, res, me);
+    const handled = await shopRoutes({ method, path, q, me, req, res });
+    if (handled !== false) return handled;
     if (method === 'GET' && path === '/api/members/me') return send(res, 200, memberDto(me));
     if (method === 'GET' && path === '/api/notifications') return send(res, 200, notifications.filter((n) => n.recipientId === me.id));
     if (method === 'GET' && path === '/api/notifications/unread-count') return send(res, 200, { count: notifications.filter((n) => n.recipientId === me.id && !n.read).length });
@@ -273,6 +605,27 @@ const server = createServer(async (req, res) => {
         const p = products.find((x) => x.id === Number(m[1]));
         Object.assign(p, body);
         return send(res, 200, p);
+      }
+      if (method === 'GET' && path === '/api/admin/orders') {
+        const list = orders.filter((o) => !q.status || o.status === q.status).sort((a, b) => b.id - a.id);
+        return send(res, 200, page(list.map(orderSummary), 0, 50));
+      }
+      if (method === 'PATCH' && (m = path.match(/^\/api\/admin\/orders\/(\d+)\/status$/))) {
+        const o = orders.find((x) => x.id === Number(m[1]));
+        const body = await readBody(req);
+        if (body.status === 'CANCELLED') {
+          if (!['PAID', 'PREPARING'].includes(o.status)) return fail(res, 400, 'BAD_REQUEST', '배송이 시작된 주문은 취소할 수 없습니다.');
+          cancelOrder(o);
+        } else {
+          if (NEXT_STATUS[o.status] !== body.status) return fail(res, 400, 'BAD_REQUEST', '단계를 건너뛸 수 없습니다.');
+          o.status = body.status;
+          if (o.status === 'DELIVERED') {
+            o.earnedPoint = Math.floor((o.itemsAmount - o.couponDiscount) / 100);
+            members.find((x) => x.id === o.memberId).point += o.earnedPoint;
+          }
+        }
+        notify(o.memberId, 'ORDER_STATUS', `주문 ${o.orderNumber} 상태가 '${STATUS_LABEL[o.status]}'(으)로 바뀌었어요.`, `/mypage/orders/${o.id}`);
+        return send(res, 200, orderDetail(o));
       }
       if (method === 'GET' && path === '/api/admin/members') {
         const list = members.filter((x) => !q.keyword || x.email.includes(q.keyword) || x.name.includes(q.keyword));

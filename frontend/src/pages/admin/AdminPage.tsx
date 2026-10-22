@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { adminApi } from '../../api/endpoints';
-import type { MemberRow, PerfumerApplicationRow, ProductDetail } from '../../api/types';
+import type { MemberRow, OrderStatus, OrderSummary, PerfumerApplicationRow, ProductDetail } from '../../api/types';
 import { useToast } from '../../components/Toast';
 import { formatDate, formatPrice } from '../../lib/format';
 import ProductForm from './ProductForm';
@@ -10,6 +10,7 @@ import styles from './AdminPage.module.css';
 
 const TABS = [
   { key: 'products', label: '상품 관리' },
+  { key: 'orders', label: '주문 관리' },
   { key: 'perfumers', label: '조향사 인증' },
   { key: 'members', label: '고객 관리' },
 ] as const;
@@ -33,7 +34,7 @@ export default function AdminPage() {
           ))}
         </nav>
       </div>
-      {tab === 'perfumers' ? <Perfumers /> : tab === 'members' ? <Members /> : <Products />}
+      {tab === 'perfumers' ? <Perfumers /> : tab === 'members' ? <Members /> : tab === 'orders' ? <Orders /> : <Products />}
     </section>
   );
 }
@@ -376,6 +377,103 @@ function Members() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+const ORDER_FLOW: { value: OrderStatus; label: string }[] = [
+  { value: 'PAID', label: '결제 완료' },
+  { value: 'PREPARING', label: '상품 준비 중' },
+  { value: 'SHIPPING', label: '배송 중' },
+  { value: 'DELIVERED', label: '배송 완료' },
+  { value: 'CANCELLED', label: '취소' },
+];
+const NEXT: Partial<Record<OrderStatus, OrderStatus>> = { PAID: 'PREPARING', PREPARING: 'SHIPPING', SHIPPING: 'DELIVERED' };
+
+function Orders() {
+  const toast = useToast();
+  const [status, setStatus] = useState<OrderStatus | ''>('');
+  const [rows, setRows] = useState<OrderSummary[]>([]);
+
+  const load = useCallback(() => {
+    adminApi
+      .orders(status || undefined)
+      .then((page) => setRows(page.content))
+      .catch((err) => toast(errorMessage(err)));
+  }, [status, toast]);
+  useEffect(load, [load]);
+
+  const change = async (row: OrderSummary, next: OrderStatus) => {
+    if (next === 'CANCELLED' && !window.confirm(`${row.orderNumber} 주문을 취소할까요? 재고·쿠폰·적립금이 복구돼요.`)) return;
+    try {
+      await adminApi.changeOrderStatus(row.id, next);
+      toast(`${row.orderNumber} → ${ORDER_FLOW.find((f) => f.value === next)?.label}`);
+      load();
+    } catch (err) {
+      toast(errorMessage(err));
+    }
+  };
+
+  return (
+    <div className={styles.panel}>
+      <div className={styles.toolbar}>
+        <div className={styles.segment}>
+          {[{ value: '' as const, label: '전체' }, ...ORDER_FLOW].map((f) => (
+            <button key={f.label} className={status === f.value ? styles.segmentOn : ''} onClick={() => setStatus(f.value)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className={styles.empty}>해당하는 주문이 없어요.</p>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>주문 번호</th>
+                <th>주문자</th>
+                <th>상품</th>
+                <th>결제 금액</th>
+                <th>상태</th>
+                <th>처리</th>
+                <th>주문일</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const next = NEXT[r.status];
+                return (
+                  <tr key={r.id}>
+                    <td className="latin">{r.orderNumber}</td>
+                    <td>{r.memberName}</td>
+                    <td>
+                      {r.firstItemName}
+                      {r.itemCount > 1 ? ` 외 ${r.itemCount - 1}건` : ''}
+                    </td>
+                    <td className="latin">{formatPrice(r.totalAmount)}</td>
+                    <td>{r.statusLabel}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {next && (
+                        <button className={styles.linkButton} onClick={() => change(r, next)}>
+                          {ORDER_FLOW.find((f) => f.value === next)?.label}으로 →
+                        </button>
+                      )}
+                      {(r.status === 'PAID' || r.status === 'PREPARING') && (
+                        <button className={styles.linkButton} onClick={() => change(r, 'CANCELLED')} style={{ marginLeft: 12 }}>
+                          취소
+                        </button>
+                      )}
+                    </td>
+                    <td className="latin">{formatDate(r.createdAt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

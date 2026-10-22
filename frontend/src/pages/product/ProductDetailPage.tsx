@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { productApi } from '../../api/endpoints';
 import type { ProductDetail } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { CompactFooter } from '../../components/layout/Footer';
 import { useToast } from '../../components/Toast';
 import { formatPrice, lines } from '../../lib/format';
+import { useShop } from '../../shop/ShopContext';
 import NotFoundPage from '../NotFoundPage';
 import Comments from './Comments';
 import Playlist from './Playlist';
@@ -24,6 +25,9 @@ export default function ProductDetailPage() {
   const productId = Number(id);
   const { requireMember } = useAuth();
   const toast = useToast();
+  const navigate = useNavigate();
+  const { addToCart } = useShop();
+  const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [error, setError] = useState(false);
   const [quantity, setQuantity] = useState(1);
@@ -54,9 +58,16 @@ export default function ProductDetailPage() {
   }
 
   const maxQuantity = Math.max(1, Math.min(product.stock, 10));
-  const purchase = (kind: 'cart' | 'buy') => {
+  const purchase = async (kind: 'cart' | 'buy') => {
     if (!requireMember('상품 구매는 회원만 이용할 수 있어요.')) return;
-    toast(kind === 'cart' ? '장바구니는 다음 단계에서 열릴 예정이에요.' : '주문서는 다음 단계에서 열릴 예정이에요.');
+    if (kind === 'buy') {
+      navigate('/checkout', { state: { lines: [{ productId: product.id, quantity }], fromCart: false } });
+      return;
+    }
+    setBusy(true);
+    const ok = await addToCart(product.id, quantity);
+    setBusy(false);
+    if (ok) toast(`${product.name} ${quantity}개를 장바구니에 담았어요.`);
   };
 
   return (
@@ -248,10 +259,10 @@ export default function ProductDetailPage() {
             </div>
           </div>
           <div className={styles.actions}>
-            <button className="btn btn-ghost" disabled={product.soldOut} onClick={() => purchase('cart')}>
+            <button className="btn btn-ghost" disabled={product.soldOut || busy} onClick={() => void purchase('cart')}>
               장바구니 담기
             </button>
-            <button className="btn btn-primary" disabled={product.soldOut} onClick={() => purchase('buy')}>
+            <button className="btn btn-primary" disabled={product.soldOut} onClick={() => void purchase('buy')}>
               {product.soldOut ? 'SOLD OUT' : '구매하기'}
             </button>
           </div>

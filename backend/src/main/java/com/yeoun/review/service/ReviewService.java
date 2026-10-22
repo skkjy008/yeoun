@@ -33,6 +33,12 @@ public class ReviewService {
                 ReviewResponse::from);
     }
 
+    public List<ReviewResponse> findMine(Long memberId) {
+        return reviewRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId).stream()
+                .map(ReviewResponse::from)
+                .toList();
+    }
+
     public List<ReviewResponse> featured() {
         return reviewRepository.findTop3ByFeaturedTrueOrderByCreatedAtDescIdDesc().stream()
                 .map(ReviewResponse::from)

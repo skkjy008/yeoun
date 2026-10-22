@@ -1,5 +1,12 @@
 import { api } from './client';
 import type {
+  Address,
+  Cart,
+  CommissionCreateRequest,
+  CommissionDetail,
+  CommissionStatus,
+  CommissionSummary,
+  Coupon,
   FilterOptions,
   Member,
   MemberRow,
@@ -16,6 +23,12 @@ import type {
   SignupRequest,
   TokenResponse,
   YoutubeResult,
+  MyPageSummary,
+  OrderCreateRequest,
+  OrderDetail,
+  OrderStatus,
+  OrderSummary,
+  PaymentMethod,
 } from './types';
 
 export interface ProductQuery {
@@ -45,6 +58,7 @@ export const reviewApi = {
   create: (productId: number, body: { rating: number; content: string }) =>
     api.post<Review>(`/api/products/${productId}/reviews`, body),
   remove: (reviewId: number) => api.delete<void>(`/api/reviews/${reviewId}`),
+  mine: () => api.get<Review[]>('/api/reviews/me'),
 };
 
 export const postApi = {
@@ -55,6 +69,60 @@ export const authApi = {
   login: (email: string, password: string) => api.post<TokenResponse>('/api/auth/login', { email, password }),
   signup: (body: SignupRequest) => api.post<TokenResponse>('/api/auth/signup', body),
   me: () => api.get<Member>('/api/members/me'),
+};
+
+export const memberApi = {
+  summary: () => api.get<MyPageSummary>('/api/members/me/summary'),
+  updateProfile: (body: { name: string; phone: string; marketingAgreed: boolean }) =>
+    api.put<Member>('/api/members/me', body),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.patch<void>('/api/members/me/password', { currentPassword, newPassword }),
+  changeAddress: (body: Address) => api.put<Address>('/api/members/me/address', body),
+};
+
+export const cartApi = {
+  get: () => api.get<Cart>('/api/cart'),
+  count: () => api.get<{ count: number }>('/api/cart/count'),
+  add: (productId: number, quantity: number) => api.post<Cart>('/api/cart/items', { productId, quantity }),
+  changeQuantity: (cartItemId: number, quantity: number) =>
+    api.patch<Cart>(`/api/cart/items/${cartItemId}`, { quantity }),
+  remove: (ids: number[]) => api.delete<Cart>(`/api/cart/items?ids=${ids.join(',')}`),
+};
+
+export const wishlistApi = {
+  list: () => api.get<ProductSummary[]>('/api/wishlist'),
+  ids: () => api.get<number[]>('/api/wishlist/ids'),
+  add: (productId: number) => api.put<void>(`/api/wishlist/${productId}`),
+  remove: (productId: number) => api.delete<void>(`/api/wishlist/${productId}`),
+};
+
+export const couponApi = {
+  mine: () => api.get<Coupon[]>('/api/coupons/me'),
+};
+
+export const orderApi = {
+  create: (body: OrderCreateRequest) => api.post<OrderDetail>('/api/orders', body),
+  mine: (status?: OrderStatus, page = 0) =>
+    api.get<PageResponse<OrderSummary>>('/api/orders', { status, page, size: 10 }),
+  detail: (id: number) => api.get<OrderDetail>(`/api/orders/${id}`),
+  cancel: (id: number) => api.post<OrderDetail>(`/api/orders/${id}/cancel`),
+};
+
+export const commissionApi = {
+  list: (status?: CommissionStatus, page = 0) =>
+    api.get<PageResponse<CommissionSummary>>('/api/commissions', { status, page, size: 12 }),
+  mine: () => api.get<CommissionSummary[]>('/api/commissions/me'),
+  proposed: () => api.get<CommissionSummary[]>('/api/commissions/proposed'),
+  detail: (id: number) => api.get<CommissionDetail>(`/api/commissions/${id}`),
+  create: (body: CommissionCreateRequest) => api.post<CommissionDetail>('/api/commissions', body),
+  propose: (id: number, body: { price: number; workingDays: number; message: string }) =>
+    api.post<CommissionDetail>(`/api/commissions/${id}/proposals`, body),
+  accept: (id: number, proposalId: number, paymentMethod: PaymentMethod) =>
+    api.post<CommissionDetail>(`/api/commissions/${id}/proposals/${proposalId}/accept`, { paymentMethod }),
+  deliver: (id: number, note: string) => api.post<CommissionDetail>(`/api/commissions/${id}/deliver`, { note }),
+  review: (id: number, body: { scentRating: number; perfumerRating: number; content: string }) =>
+    api.post<CommissionDetail>(`/api/commissions/${id}/review`, body),
+  cancel: (id: number) => api.post<CommissionDetail>(`/api/commissions/${id}/cancel`),
 };
 
 export const preferenceApi = {
@@ -87,6 +155,9 @@ export const adminApi = {
   applications: (status?: string) =>
     api.get<PerfumerApplicationRow[]>('/api/admin/perfumer-applications', { status }),
   approve: (id: number) => api.post<PerfumerApplicationRow>(`/api/admin/perfumer-applications/${id}/approve`),
+  orders: (status?: OrderStatus) => api.get<PageResponse<OrderSummary>>('/api/admin/orders', { status, size: 50 }),
+  changeOrderStatus: (id: number, status: OrderStatus) =>
+    api.patch<OrderDetail>(`/api/admin/orders/${id}/status`, { status }),
   reject: (id: number, reason: string) =>
     api.post<PerfumerApplicationRow>(`/api/admin/perfumer-applications/${id}/reject`, { reason }),
 };
