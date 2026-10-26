@@ -14,7 +14,7 @@ interface Props {
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
-/** 이미지 파일 하나를 골라 업로드하고 URL을 돌려줍니다. (S3/MinIO 또는 서버 디스크) */
+/** 이미지 파일 하나를 골라 업로드하고 URL을 돌려줍니다. (S3/SeaweedFS 또는 서버 디스크) */
 export default function ImageUpload({ purpose, onUploaded, label = '이미지 올리기', className }: Props) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);

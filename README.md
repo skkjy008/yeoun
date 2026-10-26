@@ -19,7 +19,7 @@
 | Database | MySQL 8 (로컬·운영), H2 (테스트), Flyway |
 | Frontend | React 18, TypeScript, Vite, React Router, CSS Modules, lucide-react |
 | AI | Claude API (취향 큐레이션 문장 생성, 키가 없으면 규칙 기반으로 대체) |
-| 외부 연동 | 토스페이먼츠 결제위젯, YouTube Data API v3, AWS S3(로컬 MinIO), Redis Pub/Sub |
+| 외부 연동 | 토스페이먼츠 결제위젯, YouTube Data API v3, AWS S3(로컬 SeaweedFS), Redis Pub/Sub |
 | DevOps | Docker, Docker Compose, Nginx, GitHub Actions (CI / CD → GHCR → AWS EC2), AWS RDS |
 
 ## 구현 범위 (1단계)
@@ -65,7 +65,7 @@
   - 정산: 구매 확정 금액에서 수수료 10%를 뺀 금액을 '정산 대기'로 → 운영자가 송금 후 '지급 완료' 처리
 - [x] **테마 큐레이션** `/theme`, `/theme/:slug` — 계절·기념일 테마에 상품과 큐레이터 한 줄 소개를 묶고 기간 안의 테마를 먼저 노출, 운영자 CRUD
 - [x] **Flyway** — `db/migration/common`(H2·MySQL 공용) + `db/migration/mysql`(기존 DB 정리), Hibernate는 `validate`만
-- [x] **이미지 업로드** — S3(로컬은 MinIO) 또는 서버 디스크, 파일 시그니처로 JPG·PNG·WEBP만 허용, 상품·테마(운영자)·커미션 참고 이미지(회원)
+- [x] **이미지 업로드** — S3(로컬은 SeaweedFS) 또는 서버 디스크, 파일 시그니처로 JPG·PNG·WEBP만 허용, 상품·테마(운영자)·커미션 참고 이미지(회원)
 - [x] **Redis Pub/Sub 실시간 알림** — 알림 커밋 후 Redis 채널로 발행, 모든 서버가 구독해 자기에게 연결된 사용자에게 SSE 전송
 
 ### 다음 단계
@@ -81,10 +81,10 @@
 cp .env.example .env
 docker compose up --build
 # http://localhost            웹
-# http://localhost:9001       MinIO 콘솔 (yeoun / yeoun-minio-secret)
+# http://localhost:8333       SeaweedFS S3 (업로드 이미지)
 ```
 
-MySQL·Redis·MinIO가 함께 뜨고, 백엔드가 시작하면서 Flyway로 스키마를 만듭니다.
+MySQL·Redis·SeaweedFS(S3 호환)가 함께 뜨고, 백엔드가 시작하면서 Flyway로 스키마를 만듭니다.
 
 #### 토스페이먼츠 테스트 결제 해 보기
 

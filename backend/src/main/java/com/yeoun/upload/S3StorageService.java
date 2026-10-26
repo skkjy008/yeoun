@@ -12,10 +12,13 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
- * AWS S3 업로드. endpoint를 지정하면 MinIO 같은 S3 호환 저장소에도 그대로 동작합니다.
+ * AWS S3 업로드. endpoint를 지정하면 SeaweedFS 같은 S3 호환 저장소에도 그대로 동작합니다.
  * 운영(EC2)에서는 access-key를 비워 두고 인스턴스 IAM 역할의 자격 증명을 사용하는 것을 권장합니다.
  */
 public class S3StorageService implements StorageService {
@@ -23,13 +26,14 @@ public class S3StorageService implements StorageService {
     private final S3Client client;
     private final String bucket;
     private final String publicBaseUrl;
+    private volatile boolean bucketReady;
 
     public S3StorageService(YeounProperties.Storage.S3 config) {
         S3ClientBuilder builder = S3Client.builder()
                 .region(Region.of(config.region()))
                 .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(config.pathStyle()).build());
         if (config.endpoint() != null && !config.endpoint().isBlank()) {
-            // MinIO 등 S3 호환 저장소: 필요한 경우에만 체크섬을 계산해 호환성을 높입니다.
+            // SeaweedFS 등 S3 호환 저장소: 필요한 경우에만 체크섬을 계산해 호환성을 높입니다.
             builder.endpointOverride(URI.create(config.endpoint()))
                     .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
                     .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED);
@@ -51,6 +55,7 @@ public class S3StorageService implements StorageService {
 
     @Override
     public String store(String key, byte[] bytes, String contentType) {
+        ensureBucket();
         client.putObject(PutObjectRequest.builder()
                         .bucket(bucket)
                         .key(key)
@@ -59,6 +64,27 @@ public class S3StorageService implements StorageService {
                         .build(),
                 RequestBody.fromBytes(bytes));
         return publicBaseUrl + "/" + key;
+    }
+
+    /** 로컬 저장소(SeaweedFS 등)는 버킷이 없을 수 있어 첫 업로드 때 확인하고 없으면 만듭니다. */
+    private void ensureBucket() {
+        if (bucketReady) {
+            return;
+        }
+        synchronized (this) {
+            if (bucketReady) {
+                return;
+            }
+            try {
+                client.headBucket(HeadBucketRequest.builder().bucket(bucket).build());
+            } catch (S3Exception e) {
+                if (e.statusCode() != 404) {
+                    throw e;
+                }
+                client.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+            }
+            bucketReady = true;
+        }
     }
 
     @Override

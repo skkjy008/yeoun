@@ -41,7 +41,7 @@ public record YeounProperties(Jwt jwt, Cors cors, Seed seed, Youtube youtube, Ai
     public record Commission(double feeRate, int autoConfirmDays, double inProgressRefundRate) {
     }
 
-    /** 업로드 저장소: s3.bucket 이 있으면 S3(또는 MinIO), 없으면 로컬 디스크 */
+    /** 업로드 저장소: s3.bucket 이 있으면 S3(또는 S3 호환 저장소), 없으면 로컬 디스크 */
     public record Storage(String localDir, String localPublicPath, long maxFileSize, S3 s3) {
         public record S3(String bucket, String region, String endpoint, String accessKey, String secretKey,
                          String publicBaseUrl, boolean pathStyle) {

@@ -8,7 +8,7 @@ flowchart LR
   nginx -- /api --> api[Spring Boot API]
   api --> db[(MySQL / RDS)]
   api <--> redis[(Redis<br/>알림 Pub/Sub)]
-  api --> s3[(S3 / MinIO<br/>이미지)]
+  api --> s3[(S3 / SeaweedFS<br/>이미지)]
   user -. 이미지 .-> s3
   user -- 결제위젯 --> toss[토스페이먼츠]
   api -- 승인·취소 --> toss

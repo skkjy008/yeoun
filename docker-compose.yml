@@ -1,7 +1,7 @@
 # 로컬 전체 실행: docker compose up --build  →  http://localhost
 #  - mysql : DB (스키마는 백엔드 시작 시 Flyway가 만듭니다)
 #  - redis : 실시간 알림 Pub/Sub (서버가 여러 대일 때 알림 공유)
-#  - minio : S3 호환 이미지 저장소 (콘솔 http://localhost:9001, 계정 yeoun / yeoun-minio-secret)
+#  - seaweedfs : S3 호환 이미지 저장소 (http://localhost:8333)
 services:
   mysql:
     image: mysql:8.4
@@ -32,35 +32,15 @@ services:
       timeout: 3s
       retries: 20
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-yeoun}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-yeoun-minio-secret}
+  # S3 호환 이미지 저장소 (SeaweedFS). MinIO는 2026년 9월부터 Docker Hub 이미지를 더 이상 제공하지 않아 교체했습니다.
+  # 로컬 개발용으로 인증 없이(Allow-All) 동작하며, 운영에서는 AWS S3를 사용합니다. 버킷은 첫 업로드 때 백엔드가 만듭니다.
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    command: server -s3 -s3.port=8333 -ip.bind=0.0.0.0 -dir=/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8333:8333"
     volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  # 버킷을 만들고 이미지 읽기를 공개로 설정한 뒤 종료됩니다.
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-yeoun} ${S3_SECRET_KEY:-yeoun-minio-secret} &&
-      mc mb --ignore-existing local/${S3_BUCKET:-yeoun} &&
-      mc anonymous set download local/${S3_BUCKET:-yeoun}
-      "
+      - seaweedfs-data:/data
 
   backend:
     build: ./backend
@@ -79,19 +59,19 @@ services:
       REDIS_ENABLED: "true"
       REDIS_HOST: redis
       S3_BUCKET: ${S3_BUCKET:-yeoun}
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://seaweedfs:8333
       S3_PATH_STYLE: "true"
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-yeoun}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-yeoun-minio-secret}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-yeoun-local-secret}
       # 브라우저가 이미지를 받아 가는 주소
-      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/yeoun}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:8333/yeoun}
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_started
 
   frontend:
     build: ./frontend
@@ -103,4 +83,4 @@ services:
 
 volumes:
   mysql-data:
-  minio-data:
+  seaweedfs-data:
