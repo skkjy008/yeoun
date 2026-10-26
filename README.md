@@ -16,10 +16,10 @@
 | 영역 | 사용 기술 |
 | --- | --- |
 | Backend | Java 21, Spring Boot 3.4, Spring Data JPA, Spring Security + JWT, Validation, springdoc-openapi |
-| Database | MySQL 8 (로컬·운영), H2 (테스트) |
+| Database | MySQL 8 (로컬·운영), H2 (테스트), Flyway |
 | Frontend | React 18, TypeScript, Vite, React Router, CSS Modules, lucide-react |
 | AI | Claude API (취향 큐레이션 문장 생성, 키가 없으면 규칙 기반으로 대체) |
-| 외부 연동 | YouTube Data API v3 (상세 페이지 음악 추천 영상 임베드) |
+| 외부 연동 | 토스페이먼츠 결제위젯, YouTube Data API v3, AWS S3(로컬 MinIO), Redis Pub/Sub |
 | DevOps | Docker, Docker Compose, Nginx, GitHub Actions (CI / CD → GHCR → AWS EC2), AWS RDS |
 
 ## 구현 범위 (1단계)
@@ -53,11 +53,25 @@
 - [x] **실시간 알림**: `GET /api/notifications/stream` (Server-Sent Events, fetch 스트림으로 JWT 헤더 전달, 자동 재연결)
 - [x] 운영자 주문 관리 탭(상태 변경·취소)
 
+## 구현 범위 (3단계)
+
+- [x] **토스페이먼츠 결제위젯 연동** (`TOSS_CLIENT_KEY`·`TOSS_SECRET_KEY`가 없으면 같은 흐름의 모의 결제)
+  - 주문서 제출 → 재고·쿠폰·적립금 **예약** + '결제 대기' 주문 → 결제위젯 → `successUrl`에서 서버 승인(`/v1/payments/confirm`)
+  - 서버 저장 금액과 대조해 금액 위변조 차단, 같은 승인 요청은 한 번만 처리, 승인 후 처리 실패 시 PG 자동 취소
+  - 결제창 취소·실패·30분 만료 시 예약 해제, 주문 취소 시 PG 환불(`/v1/payments/{paymentKey}/cancel`)
+- [x] **커미션 정산·환불**
+  - 제안 선택 → 선결제 → 조향사 '제작 시작' → 전달 → 구매 확정(후기 작성 또는 전달 7일 후 자동)
+  - 환불: 제작 전 100% · 제작 중 50%(PG 부분 취소, 나머지는 조향사 몫) · 전달 이후 불가, 제작 전에는 조향사도 사양 가능
+  - 정산: 구매 확정 금액에서 수수료 10%를 뺀 금액을 '정산 대기'로 → 운영자가 송금 후 '지급 완료' 처리
+- [x] **테마 큐레이션** `/theme`, `/theme/:slug` — 계절·기념일 테마에 상품과 큐레이터 한 줄 소개를 묶고 기간 안의 테마를 먼저 노출, 운영자 CRUD
+- [x] **Flyway** — `db/migration/common`(H2·MySQL 공용) + `db/migration/mysql`(기존 DB 정리), Hibernate는 `validate`만
+- [x] **이미지 업로드** — S3(로컬은 MinIO) 또는 서버 디스크, 파일 시그니처로 JPG·PNG·WEBP만 허용, 상품·테마(운영자)·커미션 참고 이미지(회원)
+- [x] **Redis Pub/Sub 실시간 알림** — 알림 커밋 후 Redis 채널로 발행, 모든 서버가 구독해 자기에게 연결된 사용자에게 SSE 전송
+
 ### 다음 단계
 
-- [ ] 테마(계절·기념일) 큐레이션 페이지
-- [ ] 실제 PG(토스페이먼츠 등) 연동, 커미션 정산/환불
-- [ ] Flyway 마이그레이션, 이미지 S3 업로드, 다중 인스턴스용 알림 브로커(Redis Pub/Sub)
+- [ ] AWS 배포: EC2 + RDS(MySQL) + S3 + ElastiCache(Redis), GitHub Secrets 등록 후 자동 배포
+- [ ] 토스페이먼츠 웹훅으로 가상계좌·결제 상태 동기화
 
 ## 빠르게 실행하기
 
@@ -66,8 +80,17 @@
 ```bash
 cp .env.example .env
 docker compose up --build
-# http://localhost  (API 문서: http://localhost/api/docs 는 backend 컨테이너 8080에서 제공)
+# http://localhost            웹
+# http://localhost:9001       MinIO 콘솔 (yeoun / yeoun-minio-secret)
 ```
+
+MySQL·Redis·MinIO가 함께 뜨고, 백엔드가 시작하면서 Flyway로 스키마를 만듭니다.
+
+#### 토스페이먼츠 테스트 결제 해 보기
+
+1. [토스페이먼츠 개발자센터](https://developers.tosspayments.com)에서 **API 키 → 결제위젯 연동 키**의 테스트 클라이언트 키(`test_gck_…`)와 시크릿 키(`test_gsk_…`)를 확인합니다.
+2. `.env`의 `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`에 넣고 `docker compose up -d --build backend`.
+3. 주문서·커미션 선결제 화면에 결제위젯이 나타나고, 테스트 결제는 실제로 출금되지 않습니다. 시크릿 키는 저장소에 올리지 마세요.
 
 ### 2) 개별 실행
 
@@ -99,7 +122,7 @@ npm run dev
 
 `yeon@` 계정에는 배송 완료·배송 중 주문, `seowoo@`·`haseo@` 계정에는 커미션 의뢰 예시가 들어 있습니다.
 
-> **기존 로컬 DB를 쓰던 경우**: 2단계에서 새 테이블·컬럼이 추가됩니다(`ddl-auto: update`가 생성). 1단계에서 `notification.type`이 MySQL `enum` 컬럼으로 만들어졌다면 새 알림 종류 저장 시 오류가 나므로 `ALTER TABLE notification MODIFY type VARCHAR(40) NOT NULL;` 을 한 번 실행하거나 `docker compose down -v`로 DB를 초기화하세요.
+> **2단계까지 쓰던 로컬 DB가 있다면**: 3단계부터 스키마는 Flyway가 관리합니다. 기존 DB는 자동으로 V1 기준선으로 등록된 뒤 V2(결제·정산·테마)와 MySQL 정리 스크립트가 적용됩니다. 깨끗하게 시작하려면 `docker compose down -v` 후 `docker compose up --build` 하세요.
 
 ## 환경 변수
 
@@ -111,12 +134,17 @@ npm run dev
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | (선택) Claude 큐레이션 |
 | `YOUTUBE_API_KEY` | (선택) 음악 추천 영상 검색 |
 | `SEED_ENABLED`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | 예시 데이터·관리자 계정 |
+| `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY` | (선택) 토스페이먼츠 **결제위젯 연동 키**. 없으면 모의 결제 |
+| `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_PUBLIC_BASE_URL`, `S3_PATH_STYLE` | 이미지 저장소. 버킷이 없으면 서버 디스크(`UPLOAD_DIR`) |
+| `REDIS_ENABLED`, `REDIS_HOST`, `REDIS_PORT` | 실시간 알림 Pub/Sub (끄면 단일 서버 모드) |
+| `COMMISSION_FEE_RATE` | 커미션 정산 수수료율 (기본 0.10) |
 
 ## 폴더 구조
 
 ```
 backend/   Spring Boot API (도메인별 패키지: member, product, preference, review, post, notification, admin, music,
-           cart, wishlist, coupon, order, commission)
+           cart, wishlist, coupon, order, commission, payment, theme, upload)
+           resources/db/migration  Flyway 스크립트
 frontend/  React + Vite SPA (pages / components / api / auth), public/images = Figma 에셋
 docs/      ERD·API 문서
 .github/   CI / CD 워크플로

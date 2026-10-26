@@ -12,15 +12,15 @@ const FILTERS: { value: string; label: string }[] = [
   { value: '', label: '전체' },
   { value: 'OPEN', label: '제안 받는 중' },
   { value: 'IN_PROGRESS', label: '제작 중' },
-  { value: 'COMPLETED', label: '후기 완료' },
+  { value: 'COMPLETED', label: '구매 확정' },
   { value: 'mine', label: '나의 의뢰' },
 ];
 
 export const FLOW = [
   { title: '의뢰 쓰기', body: '간직하고 싶은 장면과 예산을 글로 남기면, 인증된 조향사 모두에게 바로 알림이 가요.' },
   { title: '조향사 제안', body: '조향사들이 가격·작업 기간·향의 방향을 담아 제안을 보내요. 천천히 비교해 보세요.' },
-  { title: '선택과 선결제', body: '마음에 드는 제안을 고르고 결제하면 제작이 시작돼요. 결제 금액은 완료까지 안전하게 보관돼요.' },
-  { title: '받고, 남기기', body: '향을 받은 뒤 향과 조향사에 대한 후기를 따로 남겨 주세요. 다음 의뢰인의 길잡이가 돼요.' },
+  { title: '선택과 선결제', body: '마음에 드는 제안을 고르고 결제하면 제작이 시작돼요. 제작 전 취소는 전액, 제작 중에는 절반을 환불해 드려요.' },
+  { title: '받고, 확정하기', body: '향을 받으면 구매를 확정하고 후기를 남겨 주세요. 확정된 금액은 수수료 10%를 뺀 뒤 조향사에게 정산돼요.' },
 ];
 
 export function StatusChip({ status, label }: { status: CommissionStatus; label: string }) {

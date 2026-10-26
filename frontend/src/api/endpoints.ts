@@ -1,5 +1,16 @@
 import { api } from './client';
 import type {
+  AcceptResponse,
+  CheckoutResponse,
+  PaymentConfig,
+  PaymentResult,
+  SettlementSummary,
+  Settlement,
+  ThemeDetail,
+  ThemeRequest,
+  ThemeSummary,
+  UploadPurpose,
+  UploadResult,
   Address,
   Cart,
   CommissionCreateRequest,
@@ -101,7 +112,7 @@ export const couponApi = {
 };
 
 export const orderApi = {
-  create: (body: OrderCreateRequest) => api.post<OrderDetail>('/api/orders', body),
+  create: (body: OrderCreateRequest) => api.post<CheckoutResponse>('/api/orders', body),
   mine: (status?: OrderStatus, page = 0) =>
     api.get<PageResponse<OrderSummary>>('/api/orders', { status, page, size: 10 }),
   detail: (id: number) => api.get<OrderDetail>(`/api/orders/${id}`),
@@ -118,11 +129,38 @@ export const commissionApi = {
   propose: (id: number, body: { price: number; workingDays: number; message: string }) =>
     api.post<CommissionDetail>(`/api/commissions/${id}/proposals`, body),
   accept: (id: number, proposalId: number, paymentMethod: PaymentMethod) =>
-    api.post<CommissionDetail>(`/api/commissions/${id}/proposals/${proposalId}/accept`, { paymentMethod }),
+    api.post<AcceptResponse>(`/api/commissions/${id}/proposals/${proposalId}/accept`, { paymentMethod }),
+  start: (id: number) => api.post<CommissionDetail>(`/api/commissions/${id}/start`),
+  confirm: (id: number) => api.post<CommissionDetail>(`/api/commissions/${id}/confirm`),
   deliver: (id: number, note: string) => api.post<CommissionDetail>(`/api/commissions/${id}/deliver`, { note }),
   review: (id: number, body: { scentRating: number; perfumerRating: number; content: string }) =>
     api.post<CommissionDetail>(`/api/commissions/${id}/review`, body),
-  cancel: (id: number) => api.post<CommissionDetail>(`/api/commissions/${id}/cancel`),
+  cancel: (id: number, reason?: string) => api.post<CommissionDetail>(`/api/commissions/${id}/cancel`, { reason }),
+};
+
+export const settlementApi = {
+  mine: () => api.get<SettlementSummary>('/api/settlements/me'),
+};
+
+export const paymentApi = {
+  config: () => api.get<PaymentConfig>('/api/payments/config'),
+  confirm: (paymentKey: string, orderId: string, amount: number) =>
+    api.post<PaymentResult>('/api/payments/confirm', { paymentKey, orderId, amount }),
+  fail: (orderId: string, code?: string, message?: string) =>
+    api.post<void>('/api/payments/fail', { orderId, code, message }),
+};
+
+export const themeApi = {
+  list: () => api.get<ThemeSummary[]>('/api/themes'),
+  detail: (slug: string) => api.get<ThemeDetail>(`/api/themes/${slug}`),
+};
+
+export const uploadApi = {
+  image: (file: File, purpose: UploadPurpose) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.upload<UploadResult>('/api/uploads', form, { purpose });
+  },
 };
 
 export const preferenceApi = {
@@ -158,6 +196,13 @@ export const adminApi = {
   orders: (status?: OrderStatus) => api.get<PageResponse<OrderSummary>>('/api/admin/orders', { status, size: 50 }),
   changeOrderStatus: (id: number, status: OrderStatus) =>
     api.patch<OrderDetail>(`/api/admin/orders/${id}/status`, { status }),
+  themes: () => api.get<ThemeSummary[]>('/api/admin/themes'),
+  theme: (slug: string) => api.get<ThemeDetail>(`/api/admin/themes/${slug}`),
+  createTheme: (body: ThemeRequest) => api.post<ThemeDetail>('/api/admin/themes', body),
+  updateTheme: (id: number, body: ThemeRequest) => api.put<ThemeDetail>(`/api/admin/themes/${id}`, body),
+  deleteTheme: (id: number) => api.delete<void>(`/api/admin/themes/${id}`),
+  settlements: (status?: string) => api.get<SettlementSummary>('/api/admin/settlements', { status }),
+  paySettlement: (id: number) => api.post<Settlement>(`/api/admin/settlements/${id}/pay`),
   reject: (id: number, reason: string) =>
     api.post<PerfumerApplicationRow>(`/api/admin/perfumer-applications/${id}/reject`, { reason }),
 };

@@ -15,12 +15,16 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     boolean existsByOrderNumber(String orderNumber);
 
-    Page<Order> findAllByMemberIdOrderByCreatedAtDescIdDesc(Long memberId, Pageable pageable);
+    Page<Order> findAllByMemberIdAndStatusInOrderByCreatedAtDescIdDesc(Long memberId, List<OrderStatus> statuses,
+                                                                       Pageable pageable);
 
     Page<Order> findAllByMemberIdAndStatusOrderByCreatedAtDescIdDesc(Long memberId, OrderStatus status,
                                                                      Pageable pageable);
 
-    Optional<Order> findFirstByMemberIdAndStatusNotOrderByCreatedAtDescIdDesc(Long memberId, OrderStatus status);
+    Optional<Order> findFirstByMemberIdAndStatusInOrderByCreatedAtDescIdDesc(Long memberId,
+                                                                            List<OrderStatus> statuses);
+
+    Optional<Order> findByOrderNumber(String orderNumber);
 
     @EntityGraph(attributePaths = "member")
     Page<Order> findAllByOrderByCreatedAtDescIdDesc(Pageable pageable);

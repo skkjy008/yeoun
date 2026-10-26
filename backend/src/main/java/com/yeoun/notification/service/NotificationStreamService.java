@@ -8,12 +8,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 실시간 알림(Server-Sent Events). 커미션 의뢰가 등록되면 접속 중인 조향사에게 바로 전달됩니다.
- * 단일 인스턴스 기준 구현이며, 여러 대로 확장할 때는 Redis Pub/Sub 등으로 이벤트를 공유하면 됩니다.
+ * 서버가 여러 대일 때는 RedisNotificationBroadcaster가 Pub/Sub으로 모든 서버에 이벤트를 나눠 줍니다.
  */
 @Slf4j
 @Component
@@ -34,8 +33,8 @@ public class NotificationStreamService {
         return emitter;
     }
 
-    @TransactionalEventListener(fallbackExecution = true)
-    public void onCreated(NotificationCreatedEvent event) {
+    /** 이 서버에 연결된 구독자에게만 전송합니다. (서버 간 전달은 NotificationBroadcaster가 담당) */
+    public void deliverLocal(NotificationCreatedEvent event) {
         List<SseEmitter> targets = emitters.get(event.recipientId());
         if (targets == null) {
             return;

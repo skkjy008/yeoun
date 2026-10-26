@@ -4,6 +4,7 @@ import com.yeoun.global.common.PageResponse;
 import com.yeoun.global.security.AuthMember;
 import com.yeoun.member.domain.Role;
 import com.yeoun.order.domain.OrderStatus;
+import com.yeoun.order.dto.OrderDtos.CheckoutResponse;
 import com.yeoun.order.dto.OrderDtos.CreateRequest;
 import com.yeoun.order.dto.OrderDtos.OrderDetail;
 import com.yeoun.order.dto.OrderDtos.OrderSummary;
@@ -30,7 +31,7 @@ public class OrderController {
 
     @PostMapping("/api/orders")
     @ResponseStatus(HttpStatus.CREATED)
-    public OrderDetail create(@AuthenticationPrincipal AuthMember me, @Valid @RequestBody CreateRequest request) {
+    public CheckoutResponse create(@AuthenticationPrincipal AuthMember me, @Valid @RequestBody CreateRequest request) {
         return orderService.create(me.id(), request);
     }
 

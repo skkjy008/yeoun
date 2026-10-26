@@ -2,6 +2,8 @@ package com.yeoun.commission.controller;
 
 import com.yeoun.commission.domain.CommissionStatus;
 import com.yeoun.commission.dto.CommissionDtos.AcceptRequest;
+import com.yeoun.commission.dto.CommissionDtos.AcceptResponse;
+import com.yeoun.commission.dto.CommissionDtos.CancelRequest;
 import com.yeoun.commission.dto.CommissionDtos.CommissionDetail;
 import com.yeoun.commission.dto.CommissionDtos.CommissionSummary;
 import com.yeoun.commission.dto.CommissionDtos.CreateRequest;
@@ -69,9 +71,21 @@ public class CommissionController {
     }
 
     @PostMapping("/{id}/proposals/{proposalId}/accept")
-    public CommissionDetail accept(@AuthenticationPrincipal AuthMember me, @PathVariable Long id,
-                                   @PathVariable Long proposalId, @Valid @RequestBody AcceptRequest request) {
+    public AcceptResponse accept(@AuthenticationPrincipal AuthMember me, @PathVariable Long id,
+                                 @PathVariable Long proposalId, @Valid @RequestBody AcceptRequest request) {
         return commissionService.accept(me, id, proposalId, request);
+    }
+
+    /** 조향사: 제작 시작 (이후 의뢰인 취소 시 50%만 환불) */
+    @PostMapping("/{id}/start")
+    public CommissionDetail start(@AuthenticationPrincipal AuthMember me, @PathVariable Long id) {
+        return commissionService.start(me, id);
+    }
+
+    /** 의뢰인: 구매 확정 → 조향사 정산 대기 */
+    @PostMapping("/{id}/confirm")
+    public CommissionDetail confirm(@AuthenticationPrincipal AuthMember me, @PathVariable Long id) {
+        return commissionService.confirm(me, id);
     }
 
     @PostMapping("/{id}/deliver")
@@ -87,7 +101,8 @@ public class CommissionController {
     }
 
     @PostMapping("/{id}/cancel")
-    public CommissionDetail cancel(@AuthenticationPrincipal AuthMember me, @PathVariable Long id) {
-        return commissionService.cancel(me, id);
+    public CommissionDetail cancel(@AuthenticationPrincipal AuthMember me, @PathVariable Long id,
+                                   @Valid @RequestBody(required = false) CancelRequest request) {
+        return commissionService.cancel(me, id, request == null ? null : request.reason());
     }
 }

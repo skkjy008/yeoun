@@ -8,7 +8,6 @@ import { ShopProvider } from './shop/ShopContext';
 import AdminPage from './pages/admin/AdminPage';
 import LoginPage from './pages/auth/LoginPage';
 import SignupPage from './pages/auth/SignupPage';
-import ComingSoonPage from './pages/ComingSoonPage';
 import ScentFinderPage from './pages/finder/ScentFinderPage';
 import HomePage from './pages/home/HomePage';
 import CommissionDetailPage from './pages/commission/CommissionDetailPage';
@@ -22,11 +21,14 @@ import { MyOrderDetail, MyOrders } from './pages/mypage/MyOrders';
 import MyPageLayout from './pages/mypage/MyPageLayout';
 import MyProfile from './pages/mypage/MyProfile';
 import MyReviews from './pages/mypage/MyReviews';
+import MySettlements from './pages/mypage/MySettlements';
 import MyWishlist from './pages/mypage/MyWishlist';
 import NotFoundPage from './pages/NotFoundPage';
 import CartPage from './pages/order/CartPage';
 import CheckoutPage from './pages/order/CheckoutPage';
 import OrderCompletePage from './pages/order/OrderCompletePage';
+import { PaymentFailPage, PaymentSuccessPage } from './pages/order/PaymentResultPage';
+import { ThemeDetailPage, ThemeListPage } from './pages/theme/ThemePages';
 import ProductDetailPage from './pages/product/ProductDetailPage';
 import CategoryPage from './pages/shop/CategoryPage';
 
@@ -85,6 +87,7 @@ export default function App() {
               <Route path="reviews" element={<MyReviews />} />
               <Route path="profile" element={<MyProfile />} />
               <Route path="address" element={<MyAddress />} />
+              <Route path="settlements" element={<MySettlements />} />
             </Route>
             <Route
               path="/cart"
@@ -110,7 +113,24 @@ export default function App() {
                 </RequireMember>
               }
             />
-            <Route path="/theme" element={<ComingSoonPage kind="theme" />} />
+            <Route path="/theme" element={<ThemeListPage />} />
+            <Route path="/theme/:slug" element={<ThemeDetailPage />} />
+            <Route
+              path="/payments/success"
+              element={
+                <RequireMember>
+                  <PaymentSuccessPage />
+                </RequireMember>
+              }
+            />
+            <Route
+              path="/payments/fail"
+              element={
+                <RequireMember>
+                  <PaymentFailPage />
+                </RequireMember>
+              }
+            />
             <Route path="/custom" element={<CommissionListPage />} />
             <Route
               path="/custom/new"

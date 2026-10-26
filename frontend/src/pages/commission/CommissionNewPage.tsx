@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { commissionApi } from '../../api/endpoints';
 import { CompactFooter } from '../../components/layout/Footer';
+import ImageUpload from '../../components/ImageUpload';
 import { useToast } from '../../components/Toast';
 import { formatPrice } from '../../lib/format';
 import OrderIntro from '../order/OrderIntro';
@@ -21,6 +22,7 @@ export default function CommissionNewPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState({ title: '', incCd: '', moods: '', description: '', budget: '100000', desiredDate: '' });
+  const [images, setImages] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
@@ -44,6 +46,7 @@ export default function CommissionNewPage() {
         description: form.description.trim(),
         budget,
         desiredDate: form.desiredDate || null,
+        referenceImages: images,
       });
       toast('의뢰를 등록했어요. 인증된 조향사들에게 알림을 보냈어요.');
       navigate(`/custom/${created.summary.id}`, { replace: true });
@@ -99,6 +102,24 @@ export default function CommissionNewPage() {
             {errors.description && <span className="error-text">{errors.description}</span>}
           </label>
 
+          <div className={styles.field}>
+            <span>참고 이미지 (선택 · 최대 3장)</span>
+            <div className={styles.uploads}>
+              {images.map((src) => (
+                <div key={src} className={styles.uploadThumb}>
+                  <img src={src} alt="참고 이미지" />
+                  <button type="button" aria-label="이미지 빼기" onClick={() => setImages((list) => list.filter((x) => x !== src))}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              {images.length < 3 && (
+                <ImageUpload purpose="COMMISSION" className={styles.uploadAdd} label="사진 추가" onUploaded={(url) => setImages((list) => [...list, url])} />
+              )}
+            </div>
+            <span className="help">떠오르는 장소나 물건의 사진을 함께 올리면 조향사가 장면을 그리기 쉬워요.</span>
+          </div>
+
           <div className={styles.pair}>
             <div className={styles.field}>
               <label htmlFor="budget">예산</label>
@@ -126,12 +147,13 @@ export default function CommissionNewPage() {
             <ol className={styles.policy} style={{ color: 'var(--color-sand)' }}>
               <li>등록과 동시에 인증된 조향사 모두에게 실시간 알림이 가요.</li>
               <li>제안이 오면 가격과 작업 기간, 향의 방향을 비교해 한 분을 고르세요.</li>
-              <li>선택과 함께 선결제하면 제작이 시작되고, 다른 제안은 자동으로 마감돼요.</li>
-              <li>향을 받으면 향 만족도와 조향사 평가를 따로 남겨 주세요.</li>
+              <li>선택과 함께 선결제하면 다른 제안은 자동으로 마감되고, 조향사가 제작을 시작해요.</li>
+              <li>제작 전에는 전액, 제작 중에는 50%를 환불받을 수 있어요. 전달된 뒤에는 환불되지 않아요.</li>
+              <li>향을 받으면 구매 확정과 함께 향 만족도·조향사 평가를 남겨 주세요. 7일이 지나면 자동 확정돼요.</li>
             </ol>
           </div>
           <div className={styles.panel}>
-            <p>조향사를 고르기 전까지는 언제든 의뢰를 취소할 수 있어요. 결제는 포트폴리오용 모의 결제로 진행돼요.</p>
+            <p>조향사를 고르기 전까지는 언제든 의뢰를 취소할 수 있어요. 결제는 토스페이먼츠(키가 없으면 모의 결제)로 진행돼요.</p>
             <button className="btn btn-primary" disabled={submitting}>
               {submitting ? '등록 중…' : '의뢰 등록하기'}
             </button>

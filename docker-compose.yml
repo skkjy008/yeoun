@@ -1,4 +1,7 @@
 # 로컬 전체 실행: docker compose up --build  →  http://localhost
+#  - mysql : DB (스키마는 백엔드 시작 시 Flyway가 만듭니다)
+#  - redis : 실시간 알림 Pub/Sub (서버가 여러 대일 때 알림 공유)
+#  - minio : S3 호환 이미지 저장소 (콘솔 http://localhost:9001, 계정 yeoun / yeoun-minio-secret)
 services:
   mysql:
     image: mysql:8.4
@@ -19,6 +22,46 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-yeoun}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-yeoun-minio-secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # 버킷을 만들고 이미지 읽기를 공개로 설정한 뒤 종료됩니다.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-yeoun} ${S3_SECRET_KEY:-yeoun-minio-secret} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-yeoun} &&
+      mc anonymous set download local/${S3_BUCKET:-yeoun}
+      "
+
   backend:
     build: ./backend
     image: ${BACKEND_IMAGE:-yeoun-backend:local}
@@ -31,9 +74,24 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      TOSS_CLIENT_KEY: ${TOSS_CLIENT_KEY:-}
+      TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      S3_BUCKET: ${S3_BUCKET:-yeoun}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-yeoun}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-yeoun-minio-secret}
+      # 브라우저가 이미지를 받아 가는 주소
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/yeoun}
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   frontend:
     build: ./frontend
@@ -45,3 +103,4 @@ services:
 
 volumes:
   mysql-data:
+  minio-data:

@@ -41,14 +41,18 @@ public class MyPageService {
     public MyPageSummary summary(Long memberId) {
         Member member = get(memberId);
         Map<String, Long> counts = new LinkedHashMap<>();
-        for (OrderStatus status : OrderStatus.values()) {
+        for (OrderStatus status : OrderStatus.VISIBLE) {
             counts.put(status.name(), 0L);
         }
-        orderRepository.countByStatus(memberId).forEach(row -> counts.put(row.getStatus().name(), row.getCnt()));
+        orderRepository.countByStatus(memberId).stream()
+                .filter(row -> OrderStatus.VISIBLE.contains(row.getStatus()))
+                .forEach(row -> counts.put(row.getStatus().name(), row.getCnt()));
 
         long totalSpent = orderRepository.sumTotalAmount(memberId, OrderStatus.DELIVERED).longValue();
         OrderSummary recent = orderRepository
-                .findFirstByMemberIdAndStatusNotOrderByCreatedAtDescIdDesc(memberId, OrderStatus.CANCELLED)
+                .findFirstByMemberIdAndStatusInOrderByCreatedAtDescIdDesc(memberId,
+                        java.util.List.of(OrderStatus.PAID, OrderStatus.PREPARING, OrderStatus.SHIPPING,
+                                OrderStatus.DELIVERED))
                 .map(OrderSummary::from)
                 .orElse(null);
 

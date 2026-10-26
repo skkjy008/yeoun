@@ -28,4 +28,6 @@ public interface CommissionRepository extends JpaRepository<Commission, Long> {
     double averagePerfumerRating(@Param("perfumerId") Long perfumerId);
 
     long countByPerfumerIdAndStatus(Long perfumerId, CommissionStatus status);
+
+    List<Commission> findAllByStatusAndDeliveredAtBefore(CommissionStatus status, java.time.LocalDateTime before);
 }

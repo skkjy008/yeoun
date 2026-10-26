@@ -5,12 +5,15 @@ import { adminApi } from '../../api/endpoints';
 import type { MemberRow, OrderStatus, OrderSummary, PerfumerApplicationRow, ProductDetail } from '../../api/types';
 import { useToast } from '../../components/Toast';
 import { formatDate, formatPrice } from '../../lib/format';
+import { AdminSettlements, AdminThemes } from './AdminThemes';
 import ProductForm from './ProductForm';
 import styles from './AdminPage.module.css';
 
 const TABS = [
   { key: 'products', label: '상품 관리' },
   { key: 'orders', label: '주문 관리' },
+  { key: 'themes', label: '테마' },
+  { key: 'settlements', label: '정산' },
   { key: 'perfumers', label: '조향사 인증' },
   { key: 'members', label: '고객 관리' },
 ] as const;
@@ -34,7 +37,19 @@ export default function AdminPage() {
           ))}
         </nav>
       </div>
-      {tab === 'perfumers' ? <Perfumers /> : tab === 'members' ? <Members /> : tab === 'orders' ? <Orders /> : <Products />}
+      {tab === 'perfumers' ? (
+        <Perfumers />
+      ) : tab === 'members' ? (
+        <Members />
+      ) : tab === 'orders' ? (
+        <Orders />
+      ) : tab === 'themes' ? (
+        <AdminThemes />
+      ) : tab === 'settlements' ? (
+        <AdminSettlements />
+      ) : (
+        <Products />
+      )}
     </section>
   );
 }
@@ -382,6 +397,7 @@ function Members() {
 }
 
 const ORDER_FLOW: { value: OrderStatus; label: string }[] = [
+  { value: 'PENDING_PAYMENT', label: '결제 대기' },
   { value: 'PAID', label: '결제 완료' },
   { value: 'PREPARING', label: '상품 준비 중' },
   { value: 'SHIPPING', label: '배송 중' },

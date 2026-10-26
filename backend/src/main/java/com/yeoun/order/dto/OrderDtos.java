@@ -5,6 +5,7 @@ import com.yeoun.order.domain.Order;
 import com.yeoun.order.domain.OrderItem;
 import com.yeoun.order.domain.OrderStatus;
 import com.yeoun.order.domain.PaymentMethod;
+import com.yeoun.payment.dto.PaymentDtos.PaymentRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
@@ -59,6 +60,10 @@ public final class OrderDtos {
     }
 
     public record StatusRequest(@NotNull OrderStatus status) {
+    }
+
+    /** 주문서 제출 결과: 결제 대기 주문 + PG 결제창 정보 (결제 금액이 0원이면 payment는 null) */
+    public record CheckoutResponse(OrderDetail order, PaymentRequest payment) {
     }
 
     public record OrderItemResponse(Long productId, String name, String typeLabel, String volume, String imageUrl,

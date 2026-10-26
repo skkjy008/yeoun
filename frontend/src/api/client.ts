@@ -51,12 +51,13 @@ async function request<T>(method: string, path: string, options: { query?: Query
   const headers: Record<string, string> = { Accept: 'application/json' };
   const token = tokenStore.get();
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+  const isForm = options.body instanceof FormData;
+  if (options.body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
 
   const response = await fetch(buildUrl(path, options.query), {
     method,
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: options.body === undefined ? undefined : isForm ? (options.body as FormData) : JSON.stringify(options.body),
   });
 
   if (response.status === 204) return undefined as T;
@@ -80,4 +81,6 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, { body }),
   delete: <T>(path: string) => request<T>('DELETE', path),
+  /** multipart/form-data 업로드 (Content-Type은 브라우저가 boundary와 함께 정합니다) */
+  upload: <T>(path: string, form: FormData, query?: Query) => request<T>('POST', path, { body: form, query }),
 };

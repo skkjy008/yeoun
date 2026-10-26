@@ -33,7 +33,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * 주문. ORDER는 SQL 예약어라 테이블은 orders, JPQL 엔티티 이름은 Orders 로 둡니다.
- * 결제는 포트폴리오용 모의 결제(MockPaymentGateway)로 승인되며 카드 정보는 받지 않습니다.
+ * 주문서 제출 시 '결제 대기'로 만들고 재고·쿠폰·적립금을 예약하며, PG 승인 후 '결제 완료'가 됩니다.
  */
 @Getter
 @Entity(name = "Orders")
@@ -81,7 +81,7 @@ public class Order extends BaseTimeEntity {
     @Column(name = "payment_provider", length = 30)
     private String paymentProvider;
 
-    @Column(name = "payment_approval_no", length = 40)
+    @Column(name = "payment_approval_no", length = 200)
     private String paymentApprovalNo;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -109,6 +109,10 @@ public class Order extends BaseTimeEntity {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** 장바구니에서 주문했는지 — 결제가 끝나면 장바구니에서 해당 상품을 지웁니다. */
+    @Column(name = "from_cart", nullable = false)
+    private boolean fromCart;
+
     @Column(name = "cancelled_at")
     private LocalDateTime cancelledAt;
 
@@ -118,7 +122,8 @@ public class Order extends BaseTimeEntity {
 
     @Builder
     private Order(String orderNumber, Member member, String ordererName, String ordererPhone, String ordererEmail,
-                  Address shippingAddress, String deliveryMemo, PaymentMethod paymentMethod, String paymentProvider) {
+                  Address shippingAddress, String deliveryMemo, PaymentMethod paymentMethod, String paymentProvider,
+                  boolean fromCart) {
         this.orderNumber = orderNumber;
         this.member = member;
         this.ordererName = ordererName;
@@ -128,7 +133,8 @@ public class Order extends BaseTimeEntity {
         this.deliveryMemo = deliveryMemo;
         this.paymentMethod = paymentMethod;
         this.paymentProvider = paymentProvider;
-        this.status = OrderStatus.PAID;
+        this.fromCart = fromCart;
+        this.status = OrderStatus.PENDING_PAYMENT;
     }
 
     public void addItem(OrderItem item) {
@@ -148,9 +154,34 @@ public class Order extends BaseTimeEntity {
         }
     }
 
-    public void markPaid(String approvalNo) {
+    /** PG 승인 완료 → 결제 완료 */
+    public void markPaid(String approvalNo, String providerLabel) {
+        if (status != OrderStatus.PENDING_PAYMENT) {
+            throw ApiException.conflict("결제를 기다리는 주문이 아닙니다.");
+        }
         this.paymentApprovalNo = approvalNo;
+        if (providerLabel != null) {
+            this.paymentProvider = providerLabel.length() > 30 ? providerLabel.substring(0, 30) : providerLabel;
+        }
         this.paidAt = LocalDateTime.now();
+        this.status = OrderStatus.PAID;
+    }
+
+    /** 결제창 취소·실패·만료 */
+    public void markPaymentFailed() {
+        if (status != OrderStatus.PENDING_PAYMENT) {
+            throw ApiException.conflict("결제를 기다리는 주문이 아닙니다.");
+        }
+        this.status = OrderStatus.PAYMENT_FAILED;
+        this.cancelledAt = LocalDateTime.now();
+    }
+
+    public String getOrderName() {
+        if (items.isEmpty()) {
+            return "여운 주문";
+        }
+        String first = items.get(0).getProductName();
+        return items.size() == 1 ? first : "%s 외 %d건".formatted(first, items.size() - 1);
     }
 
     /** 다음 단계로 진행합니다. 순서를 건너뛸 수 없습니다. */

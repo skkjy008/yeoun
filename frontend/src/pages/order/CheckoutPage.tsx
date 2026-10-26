@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { ApiError } from '../../api/client';
-import { couponApi, memberApi, orderApi, productApi } from '../../api/endpoints';
-import type { Coupon, OrderLine, PaymentMethod, ProductDetail } from '../../api/types';
+import { couponApi, memberApi, orderApi, paymentApi, productApi } from '../../api/endpoints';
+import type { Coupon, OrderLine, PaymentConfig, PaymentMethod, ProductDetail } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { CompactFooter } from '../../components/layout/Footer';
 import { useToast } from '../../components/Toast';
 import { formatPrice, shippingFor } from '../../lib/format';
+import { proceedPayment, resultPath, useTossWidget } from '../../lib/payment';
 import { openPostcode } from '../../lib/postcode';
 import { useShop } from '../../shop/ShopContext';
 import OrderIntro from './OrderIntro';
@@ -36,6 +36,7 @@ export default function CheckoutPage() {
   const state = location.state as CheckoutState | null;
 
   const [products, setProducts] = useState<ProductDetail[] | null>(null);
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [availablePoint, setAvailablePoint] = useState(0);
 
@@ -63,6 +64,10 @@ export default function CheckoutPage() {
         navigate('/cart', { replace: true });
       });
     couponApi.mine().then(setCoupons).catch(() => setCoupons([]));
+    paymentApi
+      .config()
+      .then(setPaymentConfig)
+      .catch(() => setPaymentConfig({ provider: 'MOCK', clientKey: null, customerKey: null }));
     memberApi
       .summary()
       .then((s) => {
@@ -105,6 +110,7 @@ export default function CheckoutPage() {
   const shippingFee = shippingFor(itemsAmount);
   const total = itemsAmount - couponDiscount - pointUsed + shippingFee;
   const currentMethod = METHODS.find((m) => m.value === method) ?? METHODS[0];
+  const toss = useTossWidget(paymentConfig, total, 'toss-payment-methods', 'toss-agreement');
   const soldOutLine = lines.find((l) => l.product.soldOut || l.product.stock < l.quantity);
 
   // 쿠폰 최소 금액을 만족하는 가장 큰 쿠폰을 기본으로 적용합니다.
@@ -159,7 +165,7 @@ export default function CheckoutPage() {
     setSubmitting(true);
     try {
       const memo = memoChoice === '직접 입력' ? memoText.trim() : memoChoice === MEMOS[0] ? '' : memoChoice;
-      const order = await orderApi.create({
+      const checkout = await orderApi.create({
         items: state.lines,
         fromCart: state.fromCart,
         orderer,
@@ -171,10 +177,27 @@ export default function CheckoutPage() {
         usePoint: pointUsed,
         agreed: true,
       });
-      void refreshCart();
-      navigate(`/orders/${order.id}/complete`, { replace: true, state: { order } });
+      if (!checkout.payment) {
+        // 쿠폰·적립금으로 전액 결제된 주문
+        void refreshCart();
+        navigate(`/orders/${checkout.order.id}/complete`, { replace: true });
+        return;
+      }
+      try {
+        const result = await proceedPayment(checkout.payment, toss.widgets.current);
+        if (result) {
+          void refreshCart();
+          navigate(resultPath(result), { replace: true });
+        }
+        // TOSS: 결제창으로 이동 → /payments/success 에서 승인합니다.
+      } catch (payError) {
+        // 결제창을 닫거나 실패하면 예약한 재고·쿠폰을 바로 돌려놓습니다.
+        const code = (payError as { code?: string }).code;
+        await paymentApi.fail(checkout.payment.orderKey, code ?? 'USER_CANCEL', (payError as Error).message).catch(() => undefined);
+        throw payError;
+      }
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : '결제를 완료하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      toast(err instanceof Error ? err.message : '결제를 완료하지 못했어요. 잠시 후 다시 시도해 주세요.');
     } finally {
       setSubmitting(false);
     }
@@ -189,7 +212,11 @@ export default function CheckoutPage() {
         eyebrow="YOUR NEXT SCENT CHAPTER"
         title="당신의 일상으로 향을 보냅니다"
         step={2}
-        notice="포트폴리오용 모의 결제입니다. 실제 카드 정보는 받지 않으며, 결제 승인 후 바로 주문 내역에서 확인할 수 있어요."
+        notice={
+          toss.enabled
+            ? '토스페이먼츠 테스트 결제입니다. 테스트 키로 결제하면 실제로 돈이 빠져나가지 않아요.'
+            : '포트폴리오용 모의 결제입니다. 실제 카드 정보는 받지 않으며, 결제 승인 후 바로 주문 내역에서 확인할 수 있어요.'
+        }
       />
 
       <form className={`page px ${styles.body}`} onSubmit={submit} noValidate>
@@ -352,35 +379,46 @@ export default function CheckoutPage() {
           <section className={styles.section}>
             <div className={styles.sectionHead}>
               <h2>결제수단</h2>
-              <span>모의 결제 · 카드 정보 미수집</span>
+              <span>{toss.enabled ? '토스페이먼츠 결제위젯' : '모의 결제 · 카드 정보 미수집'}</span>
             </div>
-            <div className={styles.methods} role="radiogroup" aria-label="결제수단">
-              {METHODS.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={method === m.value}
-                  className={styles.method}
-                  onClick={() => {
-                    setMethod(m.value);
-                    setProvider(m.providers[0]);
-                  }}
-                >
-                  <span aria-hidden>{method === m.value ? '◉' : '○'}</span>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <div className={styles.field}>
-              <label htmlFor="provider">{currentMethod.providerLabel}</label>
-              <select id="provider" className={`input ${styles.select}`} value={provider} onChange={(e) => setProvider(e.target.value)}>
-                {currentMethod.providers.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-              <span className="help">결제 버튼을 누르면 모의 승인 번호가 발급되고 주문이 바로 완료돼요. 실제 결제는 일어나지 않아요.</span>
-            </div>
+            {toss.enabled ? (
+              <>
+                {!toss.ready && !toss.error && <div className="skeleton" style={{ height: 240 }} />}
+                {toss.error && <p className="error-text">{toss.error}</p>}
+                <div id="toss-payment-methods" />
+                <div id="toss-agreement" />
+              </>
+            ) : (
+              <>
+                <div className={styles.methods} role="radiogroup" aria-label="결제수단">
+                  {METHODS.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={method === m.value}
+                      className={styles.method}
+                      onClick={() => {
+                        setMethod(m.value);
+                        setProvider(m.providers[0]);
+                      }}
+                    >
+                      <span aria-hidden>{method === m.value ? '◉' : '○'}</span>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="provider">{currentMethod.providerLabel}</label>
+                  <select id="provider" className={`input ${styles.select}`} value={provider} onChange={(e) => setProvider(e.target.value)}>
+                    {currentMethod.providers.map((p) => (
+                      <option key={p}>{p}</option>
+                    ))}
+                  </select>
+                  <span className="help">결제 버튼을 누르면 모의 승인 번호가 발급되고 주문이 바로 완료돼요. 실제 결제는 일어나지 않아요.</span>
+                </div>
+              </>
+            )}
           </section>
         </div>
 
@@ -425,8 +463,12 @@ export default function CheckoutPage() {
               {field('consent')}
             </div>
             <div className={styles.actions}>
-              <button type="submit" className="btn btn-primary" disabled={submitting || !products || Boolean(soldOutLine)}>
-                {submitting ? '결제 승인 중…' : `${formatPrice(total)} 결제하기`}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={submitting || !products || Boolean(soldOutLine) || (toss.enabled && total > 0 && !toss.ready)}
+              >
+                {submitting ? '결제 진행 중…' : `${formatPrice(total)} 결제하기`}
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => navigate(-1)}>
                 취소

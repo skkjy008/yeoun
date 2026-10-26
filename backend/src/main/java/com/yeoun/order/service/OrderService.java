@@ -13,11 +13,17 @@ import com.yeoun.order.domain.Order;
 import com.yeoun.order.domain.OrderItem;
 import com.yeoun.order.domain.OrderStatus;
 import com.yeoun.order.domain.ShippingPolicy;
+import com.yeoun.order.dto.OrderDtos.CheckoutResponse;
 import com.yeoun.order.dto.OrderDtos.CreateRequest;
 import com.yeoun.order.dto.OrderDtos.OrderDetail;
 import com.yeoun.order.dto.OrderDtos.OrderLine;
 import com.yeoun.order.dto.OrderDtos.OrderSummary;
 import com.yeoun.order.repository.OrderRepository;
+import com.yeoun.payment.domain.Payment;
+import com.yeoun.payment.domain.PaymentTarget;
+import com.yeoun.payment.dto.PaymentDtos.PaymentRequest;
+import com.yeoun.payment.service.PaymentEvents;
+import com.yeoun.payment.service.PaymentService;
 import com.yeoun.product.domain.Product;
 import com.yeoun.product.repository.ProductRepository;
 import java.time.LocalDate;
@@ -29,6 +35,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,11 +53,14 @@ public class OrderService {
     private final CouponRepository couponRepository;
     private final CartService cartService;
     private final NotificationService notificationService;
-    private final MockPaymentGateway paymentGateway;
+    private final PaymentService paymentService;
 
-    /** 주문서 작성 → 재고 차감 → 쿠폰·적립금 적용 → 모의 결제 승인까지 한 트랜잭션으로 처리합니다. */
+    /**
+     * 주문서 제출: 재고·쿠폰·적립금을 먼저 예약(차감)하고 '결제 대기' 주문과 결제 정보를 만듭니다.
+     * 결제가 승인되면 결제 완료, 실패·만료되면 예약을 모두 되돌립니다.
+     */
     @Transactional
-    public OrderDetail create(Long memberId, CreateRequest request) {
+    public CheckoutResponse create(Long memberId, CreateRequest request) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> ApiException.unauthorized("회원 정보를 찾을 수 없습니다."));
 
@@ -73,6 +83,7 @@ public class OrderService {
                 .deliveryMemo(request.shipping().memo())
                 .paymentMethod(request.paymentMethod())
                 .paymentProvider(request.paymentProvider())
+                .fromCart(request.fromCart())
                 .build();
         quantities.forEach((productId, quantity) -> {
             Product product = products.get(productId);
@@ -93,27 +104,61 @@ public class OrderService {
         }
         member.usePoint(usePoint);
         order.applyDiscounts(coupon, couponDiscount, usePoint, ShippingPolicy.feeFor(order.getItemsAmount()));
-        order.markPaid(paymentGateway.approve(request.paymentMethod(), order.getTotalAmount()));
         orderRepository.save(order);
 
-        if (request.fromCart()) {
-            cartService.removeOrdered(memberId, quantities.keySet());
-        }
         if (request.saveAsDefaultAddress()) {
             member.changeAddress(request.shipping().toAddress());
         }
-        notificationService.notify(member, Type.ORDER_STATUS,
+        if (order.getTotalAmount() == 0) {
+            // 쿠폰·적립금으로 전액 할인된 주문은 PG 없이 바로 결제 완료
+            completePayment(order, "POINT-" + order.getOrderNumber(), "적립금 · 쿠폰");
+            return new CheckoutResponse(OrderDetail.from(order), null);
+        }
+        PaymentRequest payment = paymentService.prepare(member, PaymentTarget.ORDER, order.getId(), null,
+                order.getOrderNumber(), order.getOrderName(), order.getTotalAmount());
+        return new CheckoutResponse(OrderDetail.from(order), payment);
+    }
+
+    @EventListener
+    @Transactional
+    public void onPaymentApproved(PaymentEvents.Approved event) {
+        Payment payment = event.payment();
+        if (payment.getTargetType() != PaymentTarget.ORDER) {
+            return;
+        }
+        completePayment(get(payment.getTargetId()), payment.getPaymentKey(), payment.getMethodLabel());
+    }
+
+    @EventListener
+    @Transactional
+    public void onPaymentFailed(PaymentEvents.Failed event) {
+        Payment payment = event.payment();
+        if (payment.getTargetType() != PaymentTarget.ORDER) {
+            return;
+        }
+        Order order = get(payment.getTargetId());
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            order.markPaymentFailed();
+            releaseReservations(order);
+        }
+    }
+
+    private void completePayment(Order order, String approvalNo, String methodLabel) {
+        order.markPaid(approvalNo, methodLabel);
+        if (order.isFromCart()) {
+            cartService.removeOrdered(order.getMember().getId(),
+                    order.getItems().stream().map(item -> item.getProduct().getId()).toList());
+        }
+        notificationService.notify(order.getMember(), Type.ORDER_STATUS,
                 "주문 %s 결제가 완료되었어요. 향을 정성껏 준비할게요.".formatted(order.getOrderNumber()),
                 "/mypage/orders/" + order.getId());
-        return OrderDetail.from(order);
     }
 
     public PageResponse<OrderSummary> findMine(Long memberId, OrderStatus status, int page, int size) {
-        PageRequest pageable = PageRequest.of(page, size);
-        return PageResponse.of(status == null
-                ? orderRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId, pageable)
-                : orderRepository.findAllByMemberIdAndStatusOrderByCreatedAtDescIdDesc(memberId, status, pageable),
-                OrderSummary::from);
+        List<OrderStatus> statuses = status == null || !OrderStatus.VISIBLE.contains(status)
+                ? OrderStatus.VISIBLE : List.of(status);
+        return PageResponse.of(orderRepository.findAllByMemberIdAndStatusInOrderByCreatedAtDescIdDesc(memberId,
+                statuses, PageRequest.of(page, size)), OrderSummary::from);
     }
 
     public OrderDetail findOne(Long memberId, Long orderId, boolean admin) {
@@ -163,8 +208,15 @@ public class OrderService {
         return OrderDetail.from(order);
     }
 
+    /** 주문 취소: PG 환불 → 재고·쿠폰·적립금 복구 */
     private void cancel(Order order, boolean byAdmin) {
         order.cancel(byAdmin);
+        paymentService.refund(PaymentTarget.ORDER, order.getId(), null,
+                byAdmin ? "운영자 주문 취소" : "고객 주문 취소");
+        releaseReservations(order);
+    }
+
+    private void releaseReservations(Order order) {
         List<Long> productIds = order.getItems().stream().map(item -> item.getProduct().getId()).toList();
         Map<Long, Product> products = productRepository.findAllForUpdate(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
@@ -180,7 +232,7 @@ public class OrderService {
                 .orElseThrow(() -> ApiException.notFound("주문을 찾을 수 없습니다."));
     }
 
-    /** YN-20261018-4821 형식 */
+    /** YN-20261018-4821 형식 (PG 주문 ID 규칙: 6~64자, 영문·숫자·-·_) */
     private String nextOrderNumber() {
         String date = LocalDate.now().format(ORDER_DATE);
         for (int attempt = 0; attempt < 20; attempt++) {

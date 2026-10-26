@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError } from '../../api/client';
-import { commissionApi } from '../../api/endpoints';
-import type { CommissionDetail, CommissionProposal, PaymentMethod } from '../../api/types';
+import { commissionApi, paymentApi } from '../../api/endpoints';
+import type { CommissionDetail, CommissionProposal, PaymentRequest } from '../../api/types';
 import { CompactFooter } from '../../components/layout/Footer';
 import { useToast } from '../../components/Toast';
 import { formatDate, formatDateTime, formatPrice } from '../../lib/format';
+import { proceedPayment, useTossWidget } from '../../lib/payment';
 import NotFoundPage from '../NotFoundPage';
 import OrderIntro from '../order/OrderIntro';
 import { StatusChip } from './CommissionListPage';
@@ -13,15 +14,10 @@ import styles from './Commission.module.css';
 
 const STEPS = [
   { status: 'OPEN', label: '제안 받는 중' },
-  { status: 'IN_PROGRESS', label: '선결제 · 제작 중' },
+  { status: 'PAID', label: '선결제 완료' },
+  { status: 'IN_PROGRESS', label: '제작 중' },
   { status: 'DELIVERED', label: '전달 완료' },
-  { status: 'COMPLETED', label: '후기 완료' },
-];
-
-const PAYMENTS: { value: PaymentMethod; label: string }[] = [
-  { value: 'CARD', label: '신용 / 체크카드' },
-  { value: 'TRANSFER', label: '계좌이체' },
-  { value: 'EASY_PAY', label: '간편결제' },
+  { status: 'COMPLETED', label: '구매 확정' },
 ];
 
 function Stars({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
@@ -45,9 +41,8 @@ function ProposalCard({
   proposal: CommissionProposal;
   canChoose: boolean;
   busy: boolean;
-  onChoose: (method: PaymentMethod) => void;
+  onChoose: () => void;
 }) {
-  const [method, setMethod] = useState<PaymentMethod>('CARD');
   const p = proposal.perfumer;
   return (
     <article
@@ -70,22 +65,56 @@ function ProposalCard({
         {proposal.status === 'ACCEPTED' && <span className={styles.chip}>선택한 제안</span>}
         {proposal.status === 'DECLINED' && <span className="help">마감된 제안</span>}
         {canChoose && (
-          <>
-            <select className="input" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)} aria-label="결제수단">
-              {PAYMENTS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <button className="btn btn-primary" disabled={busy} onClick={() => onChoose(method)}>
-              이 조향사에게 맡기기 · {formatPrice(proposal.price)} 선결제
-            </button>
-          </>
+          <button className="btn btn-primary" disabled={busy} onClick={onChoose}>
+            이 조향사에게 맡기기 · {formatPrice(proposal.price)} 선결제
+          </button>
         )}
         <span className="help">{formatDate(proposal.createdAt)}</span>
       </div>
     </article>
+  );
+}
+
+/** 토스페이먼츠 결제위젯으로 선결제 (키가 있을 때만 나타남) */
+function TossPayPanel({ payment, onCancel }: { payment: PaymentRequest; onCancel: () => void }) {
+  const toast = useToast();
+  const config = useMemo(
+    () => ({ provider: payment.provider, clientKey: payment.clientKey, customerKey: payment.customerKey }),
+    [payment],
+  );
+  const toss = useTossWidget(config, payment.amount, 'commission-pay-methods', 'commission-pay-agreement');
+  const [busy, setBusy] = useState(false);
+
+  const pay = async () => {
+    setBusy(true);
+    try {
+      await proceedPayment(payment, toss.widgets.current);
+    } catch (e) {
+      await paymentApi.fail(payment.orderKey, (e as { code?: string }).code ?? 'USER_CANCEL', (e as Error).message).catch(() => undefined);
+      toast(e instanceof Error ? e.message : '결제를 진행하지 못했어요.');
+      onCancel();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={styles.panel}>
+      <h2>선결제</h2>
+      <p>
+        {payment.orderName} · <strong>{formatPrice(payment.amount)}</strong>
+      </p>
+      {!toss.ready && !toss.error && <div className="skeleton" style={{ height: 200 }} />}
+      {toss.error && <p className="error-text">{toss.error}</p>}
+      <div id="commission-pay-methods" />
+      <div id="commission-pay-agreement" />
+      <button className="btn btn-primary" disabled={!toss.ready || busy} onClick={pay}>
+        {formatPrice(payment.amount)} 결제하기
+      </button>
+      <button className="btn btn-ghost" onClick={onCancel}>
+        다른 제안 보기
+      </button>
+    </div>
   );
 }
 
@@ -95,11 +124,13 @@ export default function CommissionDetailPage() {
   const [detail, setDetail] = useState<CommissionDetail | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PaymentRequest | null>(null);
   const [proposal, setProposal] = useState({ price: '', workingDays: '14', message: '' });
   const [note, setNote] = useState('');
   const [review, setReview] = useState({ scentRating: 5, perfumerRating: 5, content: '' });
+  const [cancelReason, setCancelReason] = useState('');
 
-  useEffect(() => {
+  const load = useCallback(() => {
     commissionApi
       .detail(Number(id))
       .then((d) => {
@@ -108,6 +139,8 @@ export default function CommissionDetailPage() {
       })
       .catch(() => setNotFound(true));
   }, [id]);
+
+  useEffect(load, [load]);
 
   const act = useCallback(
     async (task: () => Promise<CommissionDetail>, done: string) => {
@@ -139,6 +172,25 @@ export default function CommissionDetailPage() {
   const stepIndex = STEPS.findIndex((s) => s.status === summary.status);
   const commissionId = summary.id;
 
+  const choose = async (p: CommissionProposal) => {
+    if (!window.confirm(`${p.perfumer.studioName}에게 맡기고 ${formatPrice(p.price)}을 선결제할까요?`)) return;
+    setBusy(true);
+    try {
+      const { payment } = await commissionApi.accept(commissionId, p.id, 'CARD');
+      if (payment.provider === 'MOCK') {
+        await proceedPayment(payment, null);
+        toast('선결제가 완료되었어요. 조향사에게 알림을 보냈어요.');
+        load();
+      } else {
+        setPending(payment);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '결제를 준비하지 못했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitProposal = async (e: FormEvent) => {
     e.preventDefault();
     const price = Number(proposal.price.replace(/[^0-9]/g, ''));
@@ -164,12 +216,22 @@ export default function CommissionDetailPage() {
     await act(() => commissionApi.review(commissionId, { ...review, content: review.content.trim() }), '후기를 남겼어요. 고마워요.');
   };
 
+  const cancel = () => {
+    const refund = viewer.cancelRefundAmount;
+    const message =
+      summary.status === 'OPEN'
+        ? '의뢰를 취소할까요?'
+        : `지금 취소하면 ${formatPrice(refund ?? 0)}이 환불돼요.${summary.status === 'IN_PROGRESS' ? ' 제작이 시작되어 나머지는 조향사에게 정산돼요.' : ''} 취소할까요?`;
+    if (!window.confirm(message)) return;
+    void act(() => commissionApi.cancel(commissionId, cancelReason.trim() || undefined), '의뢰를 취소했어요.');
+  };
+
   return (
     <>
       <OrderIntro crumbs={[{ label: '커스텀', to: '/custom' }, { label: summary.title }]} eyebrow="COMMISSION" title={summary.title} />
       <div className={`page px ${styles.body}`}>
         <div className={styles.main}>
-          <ol className={styles.progress} aria-label="진행 단계">
+          <ol className={styles.progress} aria-label="진행 단계" style={{ gridTemplateColumns: `repeat(${STEPS.length}, 1fr)` }}>
             {STEPS.map((s, i) => (
               <li key={s.status} className={summary.status === 'CANCELLED' ? '' : i < stepIndex ? styles.done : i === stepIndex ? styles.now : ''}>
                 {s.label}
@@ -189,8 +251,8 @@ export default function CommissionDetailPage() {
               <dd>{summary.categoryLabel}</dd>
             </div>
             <div>
-              <dt>예산</dt>
-              <dd>{formatPrice(summary.budget)}</dd>
+              <dt>{detail.agreedPrice ? '결제 금액' : '예산'}</dt>
+              <dd>{formatPrice(detail.agreedPrice ?? summary.budget)}</dd>
             </div>
             <div>
               <dt>희망 완료일</dt>
@@ -213,6 +275,15 @@ export default function CommissionDetailPage() {
               </div>
             )}
             <p className={styles.description}>{detail.description}</p>
+            {detail.referenceImages.length > 0 && (
+              <div className={styles.references}>
+                {detail.referenceImages.map((src) => (
+                  <a key={src} href={src} target="_blank" rel="noreferrer">
+                    <img src={src} alt="의뢰인이 올린 참고 이미지" loading="lazy" />
+                  </a>
+                ))}
+              </div>
+            )}
           </section>
 
           {detail.deliveryNote && (
@@ -253,18 +324,17 @@ export default function CommissionDetailPage() {
               <ProposalCard
                 key={p.id}
                 proposal={p}
-                busy={busy}
+                busy={busy || Boolean(pending)}
                 canChoose={viewer.requester && summary.status === 'OPEN' && p.status === 'PROPOSED'}
-                onChoose={(method) => {
-                  if (!window.confirm(`${p.perfumer.studioName}에게 맡기고 ${formatPrice(p.price)}을 선결제할까요?`)) return;
-                  void act(() => commissionApi.accept(commissionId, p.id, method), '선결제가 완료되었어요. 제작이 시작돼요.');
-                }}
+                onChoose={() => void choose(p)}
               />
             ))}
           </section>
         </div>
 
         <aside className={styles.aside}>
+          {pending && <TossPayPanel payment={pending} onCancel={() => setPending(null)} />}
+
           {detail.perfumer && (
             <div className={`${styles.panel} ${styles.panelDark}`}>
               <p className="eyebrow">YOUR PERFUMER</p>
@@ -275,6 +345,39 @@ export default function CommissionDetailPage() {
                 {detail.agreedPrice ? `${formatPrice(detail.agreedPrice)} 선결제` : ''}
                 {detail.paymentMethodLabel ? ` · ${detail.paymentMethodLabel}` : ''}
                 {detail.paidAt ? ` · ${formatDate(detail.paidAt)}` : ''}
+              </p>
+              {detail.receiptUrl && (
+                <a href={detail.receiptUrl} target="_blank" rel="noreferrer" className={styles.receipt}>
+                  영수증 보기 ↗
+                </a>
+              )}
+            </div>
+          )}
+
+          {detail.settlement && (
+            <div className={styles.panel}>
+              <h2>정산</h2>
+              <dl className={styles.settleRows}>
+                <div>
+                  <dt>정산 대상 금액</dt>
+                  <dd>{formatPrice(detail.settlement.grossAmount)}</dd>
+                </div>
+                <div>
+                  <dt>수수료</dt>
+                  <dd>- {formatPrice(detail.settlement.feeAmount)}</dd>
+                </div>
+                <div>
+                  <dt>지급 금액</dt>
+                  <dd>
+                    <strong>{formatPrice(detail.settlement.netAmount)}</strong>
+                  </dd>
+                </div>
+              </dl>
+              <p>
+                {detail.settlement.status === 'PAID'
+                  ? `${formatDate(detail.settlement.paidAt ?? '')} 지급 완료`
+                  : '정산 대기 중 · 운영자 확인 후 지급돼요.'}
+                {detail.settlement.reason === 'PARTIAL_CANCEL' ? ' (제작 중 취소분)' : ''}
               </p>
             </div>
           )}
@@ -302,7 +405,19 @@ export default function CommissionDetailPage() {
             </form>
           )}
 
-          {viewer.assignedPerfumer && summary.status === 'IN_PROGRESS' && (
+          {viewer.canStart && (
+            <div className={styles.panel}>
+              <h2>제작 시작하기</h2>
+              <p>
+                의뢰인이 선결제했어요. 상담을 마치고 제작을 시작하면 이후 의뢰인 취소 시 결제 금액의 절반만 환불되고, 나머지는 정산돼요.
+              </p>
+              <button className="btn btn-primary" disabled={busy} onClick={() => void act(() => commissionApi.start(commissionId), '제작을 시작했어요.')}>
+                제작 시작
+              </button>
+            </div>
+          )}
+
+          {viewer.canDeliver && (
             <form className={`${styles.panel} ${styles.form}`} onSubmit={submitDelivery}>
               <h2>완성된 향 전달하기</h2>
               <label className={styles.field}>
@@ -315,9 +430,22 @@ export default function CommissionDetailPage() {
             </form>
           )}
 
-          {viewer.requester && summary.status === 'DELIVERED' && (
+          {viewer.canConfirm && (
+            <div className={styles.panel}>
+              <h2>향을 받으셨나요?</h2>
+              <p>
+                구매를 확정하면 조향사에게 정산돼요.
+                {detail.autoConfirmAt ? ` ${formatDate(detail.autoConfirmAt)}까지 확정하지 않으면 자동으로 확정돼요.` : ''}
+              </p>
+              <button className="btn btn-ghost" disabled={busy} onClick={() => void act(() => commissionApi.confirm(commissionId), '구매를 확정했어요.')}>
+                후기 없이 구매 확정
+              </button>
+            </div>
+          )}
+
+          {viewer.canReview && (
             <form className={`${styles.panel} ${styles.form}`} onSubmit={submitReview}>
-              <h2>후기 남기기</h2>
+              <h2>{summary.status === 'DELIVERED' ? '후기 남기고 구매 확정' : '후기 남기기'}</h2>
               <div className={styles.field}>
                 향은 어땠나요?
                 <Stars label="향 만족도" value={review.scentRating} onChange={(v) => setReview({ ...review, scentRating: v })} />
@@ -331,23 +459,28 @@ export default function CommissionDetailPage() {
                 <textarea className="input" rows={5} maxLength={1000} value={review.content} onChange={(e) => setReview({ ...review, content: e.target.value })} />
               </label>
               <button className="btn btn-primary" disabled={busy}>
-                후기 남기고 완료하기
+                후기 남기기
               </button>
             </form>
           )}
 
           <div className={styles.panel}>
-            {viewer.requester && summary.status === 'OPEN' && (
+            {viewer.canCancel && (
               <>
-                <p>제안을 비교한 뒤 한 분을 골라 선결제하면 제작이 시작돼요. 조향사를 고르기 전까지는 의뢰를 취소할 수 있어요.</p>
-                <button
-                  className="btn btn-ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    if (window.confirm('의뢰를 취소할까요?')) void act(() => commissionApi.cancel(commissionId), '의뢰를 취소했어요.');
-                  }}
-                >
-                  의뢰 취소
+                <p>
+                  {summary.status === 'OPEN' && '제안을 비교한 뒤 한 분을 골라 선결제하면 제작이 시작돼요. 조향사를 고르기 전까지는 무료로 취소할 수 있어요.'}
+                  {summary.status === 'PAID' &&
+                    (viewer.assignedPerfumer
+                      ? '제작을 시작하기 전이라면 의뢰를 사양할 수 있어요. 결제 금액은 의뢰인에게 전액 환불돼요.'
+                      : '제작이 시작되기 전이에요. 지금 취소하면 전액 환불돼요.')}
+                  {summary.status === 'IN_PROGRESS' &&
+                    `제작이 진행 중이에요. 지금 취소하면 ${formatPrice(viewer.cancelRefundAmount ?? 0)}만 환불되고, 나머지는 조향사에게 정산돼요.`}
+                </p>
+                {summary.status !== 'OPEN' && (
+                  <input className="input" maxLength={300} placeholder="취소 사유 (선택)" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                )}
+                <button className="btn btn-ghost" disabled={busy} onClick={cancel}>
+                  {viewer.assignedPerfumer ? '의뢰 사양하기' : '의뢰 취소'}
                 </button>
               </>
             )}
@@ -355,8 +488,14 @@ export default function CommissionDetailPage() {
             {!viewer.requester && !viewer.perfumer && summary.status === 'OPEN' && (
               <p>제안은 여운이 인증한 조향사만 보낼 수 있어요. 조향사라면 회원가입 때 인증을 신청해 주세요.</p>
             )}
-            {summary.status === 'COMPLETED' && <p>후기까지 마친 의뢰예요. 조향사 평가는 다음 의뢰인들의 선택에 반영돼요.</p>}
-            {summary.status === 'CANCELLED' && <p>취소된 의뢰예요.</p>}
+            {summary.status === 'COMPLETED' && <p>구매가 확정된 의뢰예요. 조향사 평가는 다음 의뢰인들의 선택에 반영돼요.</p>}
+            {summary.status === 'CANCELLED' && (
+              <p>
+                취소된 의뢰예요.{detail.cancelReason ? ` 사유: ${detail.cancelReason}` : ''}
+                {detail.refundAmount ? ` · 환불 ${formatPrice(detail.refundAmount)}` : ''}
+              </p>
+            )}
+            <p className="help">환불 기준: 제작 전 100% · 제작 중 50% · 전달 이후 불가 · 정산 수수료 10%</p>
             <Link to="/custom" className={styles.back}>
               ← 의뢰 게시판으로
             </Link>

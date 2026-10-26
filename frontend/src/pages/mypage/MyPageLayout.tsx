@@ -53,7 +53,7 @@ export default function MyPageLayout() {
             <span>반가워요, 오늘의 향은 어떤가요?</span>
           </div>
           <nav className={styles.links} aria-label="마이페이지 메뉴">
-            {LINKS.map((link) => (
+            {[...LINKS, ...(member.role === 'PERFUMER' ? [{ to: '/mypage/settlements', label: '정산 내역', end: false }] : [])].map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}

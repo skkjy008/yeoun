@@ -269,7 +269,7 @@ export interface Coupon {
   usable: boolean;
 }
 
-export type OrderStatus = 'PAID' | 'PREPARING' | 'SHIPPING' | 'DELIVERED' | 'CANCELLED';
+export type OrderStatus = 'PENDING_PAYMENT' | 'PAYMENT_FAILED' | 'PAID' | 'PREPARING' | 'SHIPPING' | 'DELIVERED' | 'CANCELLED';
 export type PaymentMethod = 'CARD' | 'TRANSFER' | 'EASY_PAY';
 
 export interface OrderItem {
@@ -393,7 +393,7 @@ export interface MyPageSummary {
   address: Address | null;
 }
 
-export type CommissionStatus = 'OPEN' | 'IN_PROGRESS' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED';
+export type CommissionStatus = 'OPEN' | 'PAID' | 'IN_PROGRESS' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED';
 
 export interface CommissionSummary {
   id: number;
@@ -433,15 +433,57 @@ export interface CommissionProposal {
 export interface CommissionDetail {
   summary: CommissionSummary;
   description: string;
+  referenceImages: string[];
   perfumer: PerfumerCard | null;
   agreedPrice: number | null;
   paymentMethodLabel: string | null;
+  receiptUrl: string | null;
   paidAt: string | null;
+  startedAt: string | null;
   deliveryNote: string | null;
   deliveredAt: string | null;
+  autoConfirmAt: string | null;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  refundAmount: number | null;
   review: { scentRating: number; perfumerRating: number; content: string; reviewedAt: string } | null;
+  settlement: Settlement | null;
   proposals: CommissionProposal[];
-  viewer: { requester: boolean; perfumer: boolean; assignedPerfumer: boolean; canPropose: boolean; proposed: boolean };
+  viewer: {
+    requester: boolean;
+    perfumer: boolean;
+    assignedPerfumer: boolean;
+    canPropose: boolean;
+    proposed: boolean;
+    canStart: boolean;
+    canDeliver: boolean;
+    canConfirm: boolean;
+    canReview: boolean;
+    canCancel: boolean;
+    cancelRefundAmount: number | null;
+  };
+}
+
+export interface Settlement {
+  id: number;
+  commissionId: number;
+  commissionTitle: string;
+  perfumerName: string;
+  reason: 'CONFIRMED' | 'PARTIAL_CANCEL';
+  grossAmount: number;
+  feeAmount: number;
+  netAmount: number;
+  status: 'PENDING' | 'PAID';
+  createdAt: string;
+  paidAt: string | null;
+}
+
+export interface SettlementSummary {
+  pendingAmount: number;
+  paidAmount: number;
+  feeRate: number;
+  items: Settlement[];
 }
 
 export interface CommissionCreateRequest {
@@ -451,4 +493,93 @@ export interface CommissionCreateRequest {
   description: string;
   budget: number;
   desiredDate?: string | null;
+  referenceImages?: string[];
+}
+
+/* ───────── 3단계: 결제 · 테마 · 업로드 ───────── */
+
+export interface PaymentConfig {
+  provider: 'TOSS' | 'MOCK';
+  clientKey: string | null;
+  customerKey: string | null;
+}
+
+export interface PaymentRequest {
+  provider: 'TOSS' | 'MOCK';
+  clientKey: string | null;
+  customerKey: string;
+  orderKey: string;
+  orderName: string;
+  amount: number;
+  customerName: string;
+  customerEmail: string;
+  targetType: 'ORDER' | 'COMMISSION';
+  targetId: number;
+}
+
+export interface PaymentResult {
+  orderKey: string;
+  status: string;
+  targetType: 'ORDER' | 'COMMISSION';
+  targetId: number;
+  amount: number;
+  methodLabel: string | null;
+  receiptUrl: string | null;
+  approvedAt: string | null;
+}
+
+export interface CheckoutResponse {
+  order: OrderDetail;
+  payment: PaymentRequest | null;
+}
+
+export interface AcceptResponse {
+  commission: CommissionDetail;
+  payment: PaymentRequest;
+}
+
+export interface ThemeSummary {
+  id: number;
+  slug: string;
+  eyebrow: string | null;
+  title: string;
+  subtitle: string | null;
+  heroImageUrl: string;
+  startsOn: string | null;
+  endsOn: string | null;
+  active: boolean;
+  published: boolean;
+  sortOrder: number;
+  productCount: number;
+  previewImages: string[];
+}
+
+export interface ThemeDetail {
+  summary: ThemeSummary;
+  story: string | null;
+  items: { product: ProductSummary; note: string | null }[];
+  others: ThemeSummary[];
+}
+
+export interface ThemeRequest {
+  slug: string;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  story: string;
+  heroImageUrl: string;
+  startsOn: string | null;
+  endsOn: string | null;
+  sortOrder: number;
+  published: boolean;
+  items: { productId: number; note: string }[];
+}
+
+export type UploadPurpose = 'PRODUCT' | 'THEME' | 'COMMISSION';
+
+export interface UploadResult {
+  url: string;
+  key: string;
+  size: number;
+  contentType: string;
 }

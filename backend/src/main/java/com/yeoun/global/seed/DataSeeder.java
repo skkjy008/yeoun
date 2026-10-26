@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yeoun.commission.domain.Commission;
 import com.yeoun.commission.domain.CommissionProposal;
 import com.yeoun.commission.repository.CommissionProposalRepository;
+import com.yeoun.commission.domain.Settlement;
 import com.yeoun.commission.repository.CommissionRepository;
+import com.yeoun.commission.repository.SettlementRepository;
 import com.yeoun.coupon.domain.Coupon;
 import com.yeoun.coupon.repository.CouponRepository;
 import com.yeoun.global.config.YeounProperties;
@@ -35,6 +37,8 @@ import com.yeoun.product.domain.Track;
 import com.yeoun.product.repository.ProductRepository;
 import com.yeoun.review.domain.Review;
 import com.yeoun.review.repository.ReviewRepository;
+import com.yeoun.theme.domain.Theme;
+import com.yeoun.theme.repository.ThemeRepository;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDate;
@@ -74,6 +78,8 @@ public class DataSeeder implements ApplicationRunner {
     private final OrderRepository orderRepository;
     private final CommissionRepository commissionRepository;
     private final CommissionProposalRepository proposalRepository;
+    private final SettlementRepository settlementRepository;
+    private final ThemeRepository themeRepository;
 
     @Override
     @Transactional
@@ -104,6 +110,9 @@ public class DataSeeder implements ApplicationRunner {
         }
         if (commissionRepository.count() == 0) {
             seedCommissions();
+        }
+        if (themeRepository.count() == 0) {
+            seedThemes();
         }
     }
 
@@ -295,12 +304,12 @@ public class DataSeeder implements ApplicationRunner {
         Order order = Order.builder().orderNumber(number).member(member).ordererName(member.getName())
                 .ordererPhone(member.getPhone()).ordererEmail(member.getEmail()).shippingAddress(address)
                 .deliveryMemo("문 앞에 놓아 주세요.").paymentMethod(PaymentMethod.CARD).paymentProvider("여운카드(예시)")
-                .build();
+                .fromCart(false).build();
         for (int i = 0; i < products.size(); i++) {
             order.addItem(new OrderItem(products.get(i), quantities.get(i)));
         }
         order.applyDiscounts(null, 0, 0, ShippingPolicy.feeFor(order.getItemsAmount()));
-        order.markPaid("MOCK-SEED-" + number.substring(number.length() - 4));
+        order.markPaid("MOCK-SEED-" + number.substring(number.length() - 4), "여운카드(예시)");
         return order;
     }
 
@@ -322,8 +331,13 @@ public class DataSeeder implements ApplicationRunner {
                 "무화과 잎과 우유 같은 무화과 과육을 중심에 두고, 따뜻한 미네랄 노트로 돌담을 표현해 볼게요."));
         done.accept(doneProposal, PaymentMethod.CARD, "MOCK-SEED-C001");
         doneProposal.accept();
+        done.start();
         done.deliver("50ml 향수 1병과 시향지 3장을 보내 드렸어요. 첫 향은 잎, 30분 뒤에는 돌담의 온기가 남아요.");
         done.review(5, 5, "정말 그 마당에 서 있는 기분이었어요. 상담할 때 기억을 하나하나 물어봐 주셔서 감동했어요.");
+        done.confirm();
+        Settlement settlement = settlementRepository.save(new Settlement(done, atelier, Settlement.Reason.CONFIRMED,
+                done.getAgreedPrice(), properties.commission().feeRate()));
+        settlement.markPaid();
 
         Commission open = commissionRepository.save(Commission.builder().requester(seowoo)
                 .title("비 오는 날의 오래된 서재").incCd("001").moods("비, 오래된 책, 나무 책장")
@@ -338,6 +352,37 @@ public class DataSeeder implements ApplicationRunner {
                 .description("해 뜨기 전 산에 오를 때 처음 들이마시는 차갑고 맑은 공기를 향으로 만들고 싶어요. "
                         + "향 종류는 조향사님 제안에 맡길게요.")
                 .budget(60_000).desiredDate(LocalDate.now().plusDays(30)).build());
+    }
+
+    /** 테마 큐레이션 예시 (기간은 올해 날짜로 맞추고, 해를 넘기는 기간은 다음 해까지) */
+    private void seedThemes() throws IOException {
+        List<Product> products = productRepository.findAll();
+        int year = LocalDate.now().getYear();
+        for (JsonNode t : read("seed/themes.json")) {
+            LocalDate start = monthDay(text(t, "start"), year);
+            LocalDate end = monthDay(text(t, "end"), year);
+            if (start != null && end != null && end.isBefore(start)) {
+                end = end.plusYears(1);
+            }
+            Theme theme = new Theme(new Theme.Spec(t.get("slug").asText(), text(t, "eyebrow"), t.get("title").asText(),
+                    text(t, "subtitle"), text(t, "story"), t.get("heroImage").asText(), start, end,
+                    t.get("sortOrder").asInt(), true));
+            List<Product> items = new ArrayList<>();
+            List<String> notes = new ArrayList<>();
+            for (JsonNode item : t.get("products")) {
+                Product product = findByName(products, item.get(0).asText());
+                if (product != null) {
+                    items.add(product);
+                    notes.add(item.get(1).asText());
+                }
+            }
+            theme.replaceProducts(items, notes);
+            themeRepository.save(theme);
+        }
+    }
+
+    private static LocalDate monthDay(String value, int year) {
+        return value == null ? null : LocalDate.parse(year + "-" + value);
     }
 
     private static Product findByName(List<Product> products, String name) {

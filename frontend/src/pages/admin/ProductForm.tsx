@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { ApiError } from '../../api/client';
 import { adminApi } from '../../api/endpoints';
 import type { ProductDetail, ProductRequest } from '../../api/types';
+import ImageUpload from '../../components/ImageUpload';
 import { useToast } from '../../components/Toast';
 import styles from './AdminPage.module.css';
 
@@ -181,14 +182,17 @@ export default function ProductForm({ product, onCancel, onSaved }: { product: P
       <fieldset>
         <legend>이미지</legend>
         <label>
-          상품 이미지 경로 *<input className="input" required value={f.imageUrl} onChange={set('imageUrl')} />
+          상품 이미지 *<input className="input" required value={f.imageUrl} onChange={set('imageUrl')} />
         </label>
+        <ImageUpload purpose="PRODUCT" className={styles.uploadButton} label="상품 이미지 올리기" onUploaded={(url) => setF((prev) => ({ ...prev, imageUrl: url }))} />
         <label>
           메인 카드용 이미지<input className="input" value={f.thumbnailUrl} onChange={set('thumbnailUrl')} />
         </label>
+        <ImageUpload purpose="PRODUCT" className={styles.uploadButton} label="카드 이미지 올리기" onUploaded={(url) => setF((prev) => ({ ...prev, thumbnailUrl: url }))} />
         <label>
           향 아트워크<input className="input" value={f.artworkUrl} onChange={set('artworkUrl')} />
         </label>
+        <ImageUpload purpose="PRODUCT" className={styles.uploadButton} label="아트워크 올리기" onUploaded={(url) => setF((prev) => ({ ...prev, artworkUrl: url }))} />
         {f.imageUrl && <img className={styles.preview} src={f.imageUrl} alt="미리보기" />}
       </fieldset>
 

@@ -12,6 +12,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -41,11 +43,13 @@ public class Member extends BaseTimeEntity {
     /** 권한 속성: USER / PERFUMER / ADMIN */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     private Role role;
 
     /** 등급 속성: BRONZE ~ DIAMOND */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     private Grade grade;
 
     @Column(name = "marketing_agreed", nullable = false)
@@ -54,6 +58,10 @@ public class Member extends BaseTimeEntity {
     /** 보유 적립금 */
     @Column(name = "point_balance", nullable = false)
     private int point;
+
+    /** PG 결제위젯의 구매자 식별 키 (추측하기 어려운 무작위 값) */
+    @Column(name = "customer_key", unique = true, length = 64)
+    private String customerKey;
 
     /** 기본 배송지 */
     @Embedded
@@ -116,5 +124,12 @@ public class Member extends BaseTimeEntity {
         if (earned.ordinal() > grade.ordinal()) {
             this.grade = earned;
         }
+    }
+
+    public String getCustomerKey() {
+        if (customerKey == null) {
+            customerKey = "YN_" + java.util.UUID.randomUUID();
+        }
+        return customerKey;
     }
 }
