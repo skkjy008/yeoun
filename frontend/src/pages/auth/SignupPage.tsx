@@ -121,7 +121,7 @@ export default function SignupPage() {
             <p>마음에 남은 향과 주문 내역을 한곳에서 살펴보세요. 작은 취향이 쌓여 당신만의 여운이 됩니다.</p>
           </div>
           <ol className={styles.benefits}>
-            <Benefit no="01" title="향과 함께하는 첫 만남" desc="신규 가입 웰컴 쿠폰 3,000원 · 혜택 예시" />
+            <Benefit no="01" title="향과 함께하는 첫 만남" desc="가입 후 이벤트에서 웰컴 쿠폰 3,000원 받기" />
             <Benefit no="02" title="취향을 따라 쌓이는 여운" desc="브론즈부터 다이아까지, 나의 회원등급 확인" />
             <Benefit no="03" title="나에게 도착하는 향의 편지" desc="선택 동의 시 새로운 향과 큐레이션 소식" />
           </ol>

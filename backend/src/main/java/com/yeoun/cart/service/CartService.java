@@ -5,6 +5,7 @@ import com.yeoun.cart.dto.CartDtos.AddRequest;
 import com.yeoun.cart.dto.CartDtos.CartItemResponse;
 import com.yeoun.cart.dto.CartDtos.CartResponse;
 import com.yeoun.cart.repository.CartItemRepository;
+import com.yeoun.event.service.SalePricing;
 import com.yeoun.global.exception.ApiException;
 import com.yeoun.member.domain.Member;
 import com.yeoun.member.repository.MemberRepository;
@@ -13,6 +14,7 @@ import com.yeoun.product.domain.Product;
 import com.yeoun.product.repository.ProductRepository;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,12 +27,14 @@ public class CartService {
     private final CartItemRepository cartItemRepository;
     private final MemberRepository memberRepository;
     private final ProductRepository productRepository;
+    private final SalePricing salePricing;
 
     public CartResponse findMine(Long memberId) {
+        Map<Long, Integer> rates = salePricing.activeRates();
         List<CartItemResponse> items = cartItemRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId)
                 .stream()
                 .filter(item -> item.getProduct().isActive())
-                .map(CartItemResponse::from)
+                .map(item -> CartItemResponse.from(item, rates.getOrDefault(item.getProduct().getId(), 0)))
                 .toList();
         int itemsAmount = items.stream().filter(CartItemResponse::available).mapToInt(CartItemResponse::lineAmount)
                 .sum();

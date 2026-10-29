@@ -35,7 +35,15 @@ export default function CommissionNewPage() {
     if (form.description.trim().length < 20) next.description = '원하는 향을 20자 이상 들려주세요.';
     if (!budget || budget < 30_000) next.budget = '예산은 30,000원 이상으로 정해 주세요.';
     setErrors(next);
-    if (Object.keys(next).length) return;
+    const firstError = Object.keys(next)[0];
+    if (firstError) {
+      // 입력 칸 아래 안내만으로는 놓치기 쉬워(버튼은 오른쪽 아래) 토스트와 함께 해당 칸으로 이동합니다.
+      toast(next[firstError]);
+      const target = document.getElementById(`commission-${firstError}`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus({ preventScroll: true });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -68,7 +76,7 @@ export default function CommissionNewPage() {
         <div className={`${styles.main} ${styles.form}`}>
           <label className={styles.field}>
             의뢰 제목<span className="sr-only"> (필수)</span>
-            <input className="input" maxLength={60} placeholder="예: 비 오는 날의 오래된 서재" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+            <input id="commission-title" className="input" maxLength={60} placeholder="예: 비 오는 날의 오래된 서재" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
             {errors.title && <span className="error-text">{errors.title}</span>}
           </label>
 
@@ -91,6 +99,7 @@ export default function CommissionNewPage() {
           <label className={styles.field}>
             장면 이야기
             <textarea
+              id="commission-description"
               className="input"
               rows={9}
               maxLength={2000}
@@ -122,8 +131,8 @@ export default function CommissionNewPage() {
 
           <div className={styles.pair}>
             <div className={styles.field}>
-              <label htmlFor="budget">예산</label>
-              <input id="budget" className="input" inputMode="numeric" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
+              <label htmlFor="commission-budget">예산</label>
+              <input id="commission-budget" className="input" inputMode="numeric" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
               <div className={styles.choices}>
                 {BUDGETS.map((b) => (
                   <button key={b} type="button" className={styles.choice} aria-checked={Number(form.budget) === b} role="radio" onClick={() => setForm({ ...form, budget: String(b) })}>
@@ -157,6 +166,11 @@ export default function CommissionNewPage() {
             <button className="btn btn-primary" disabled={submitting}>
               {submitting ? '등록 중…' : '의뢰 등록하기'}
             </button>
+            {Object.keys(errors).length > 0 && (
+              <p className="error-text" role="alert">
+                {Object.values(errors)[0]}
+              </p>
+            )}
             <Link to="/custom" className={styles.back}>
               ← 의뢰 게시판으로
             </Link>

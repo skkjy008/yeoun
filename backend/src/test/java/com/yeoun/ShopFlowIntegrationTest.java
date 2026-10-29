@@ -11,6 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yeoun.event.domain.Event;
+import com.yeoun.event.domain.EventKind;
+import com.yeoun.event.repository.EventRepository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +40,9 @@ class ShopFlowIntegrationTest {
 
     @Autowired
     ObjectMapper objectMapper;
+
+    @Autowired
+    EventRepository eventRepository;
 
     private JsonNode call(MockHttpServletRequestBuilder request, String token, Object body, int expectedStatus)
             throws Exception {
@@ -112,6 +118,10 @@ class ShopFlowIntegrationTest {
     void 가입하면_환영_쿠폰이_발급되고_장바구니에서_주문하면_재고가_줄고_취소하면_돌아온다() throws Exception {
         String token = signupNewMember();
 
+        // 신규 가입 이벤트: 가입만으로는 쿠폰이 없고, 이벤트에서 한 번만 받을 수 있다
+        assertThat(call(get("/api/coupons/me"), token, null, 200)).isEmpty();
+        call(post("/api/events/welcome-coupon"), token, null, 201);
+        call(post("/api/events/welcome-coupon"), token, null, 409);
         JsonNode coupons = call(get("/api/coupons/me"), token, null, 200);
         assertThat(coupons).hasSize(1);
         assertThat(coupons.get(0).get("discountAmount").asInt()).isEqualTo(3000);
@@ -395,6 +405,79 @@ class ShopFlowIntegrationTest {
                         .file(new MockMultipartFile("file", "fake.png", "image/png", "not an image".getBytes()))
                         .param("purpose", "COMMISSION").header(HttpHeaders.AUTHORIZATION, "Bearer " + user))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 테마_특가_상품은_목록_장바구니_주문에_할인가로_계산된다() throws Exception {
+        // 날짜에 상관없이 돌도록 기간 없는 특가 이벤트 + 전용 테마(허브의 정원 34,000원)를 만든다
+        String admin = login("admin@yeoun.example", "admin1234!");
+        Map<String, Object> theme = new HashMap<>();
+        theme.put("slug", "test-herb-sale");
+        theme.put("title", "허브 특가 테스트");
+        theme.put("heroImageUrl", "/images/hero/hero-1.jpg");
+        theme.put("sortOrder", 99);
+        theme.put("published", true);
+        theme.put("items", List.of(Map.of("productId", 36, "note", "특가 대상")));
+        call(post("/api/admin/themes"), admin, theme, 201);
+        eventRepository.save(new Event("test-herb-sale", EventKind.THEME_SALE, "허브 특가", "요약", "본문",
+                "/images/hero/hero-1.jpg", null, null, "test-herb-sale", 30, 99));
+
+        JsonNode detail = call(get("/api/products/36"), null, null, 200);
+        assertThat(detail.get("price").asInt()).isEqualTo(34_000);
+        assertThat(detail.get("saleRate").asInt()).isEqualTo(30);
+        assertThat(detail.get("salePrice").asInt()).isEqualTo(23_800);
+        // 특가가 아닌 상품은 판매가 = 정가
+        JsonNode plain = call(get("/api/products/35"), null, null, 200);
+        assertThat(plain.get("salePrice").asInt()).isEqualTo(plain.get("price").asInt());
+        assertThat(plain.get("saleRate").asInt()).isZero();
+
+        String token = signupNewMember();
+        JsonNode cart = call(post("/api/cart/items"), token, Map.of("productId", 36, "quantity", 2), 200);
+        JsonNode line = cart.get("items").get(0);
+        assertThat(line.get("listPrice").asInt()).isEqualTo(34_000);
+        assertThat(line.get("unitPrice").asInt()).isEqualTo(23_800);
+        assertThat(cart.get("itemsAmount").asInt()).isEqualTo(47_600);
+        assertThat(cart.get("shippingFee").asInt()).isEqualTo(3_000);
+
+        JsonNode checkout = call(post("/api/orders"), token,
+                orderBody(List.of(Map.of("productId", 36, "quantity", 2)), true, null), 201);
+        assertThat(checkout.get("payment").get("amount").asInt()).isEqualTo(50_600);
+        JsonNode order = call(get("/api/orders/" + checkout.get("order").get("id").asLong()), token, null, 200);
+        assertThat(order.get("itemsAmount").asInt()).isEqualTo(47_600);
+        assertThat(order.get("items").get(0).get("unitPrice").asInt()).isEqualTo(23_800);
+    }
+
+    @Test
+    void 이벤트_목록과_상세를_조회한다() throws Exception {
+        JsonNode events = call(get("/api/events"), null, null, 200);
+        assertThat(events.size()).isGreaterThanOrEqualTo(4);
+        JsonNode halloween = call(get("/api/events/halloween-sale"), null, null, 200);
+        assertThat(halloween.get("themeSlug").asText()).isEqualTo("halloween-night");
+        assertThat(halloween.get("summary").get("kind").asText()).isEqualTo("THEME_SALE");
+        call(get("/api/events/no-such-event"), null, null, 404);
+    }
+
+    @Test
+    void 룰렛은_하루에_한_번만_돌릴_수_있다() throws Exception {
+        String token = signupNewMember();
+        call(post("/api/events/roulette/spin"), null, null, 401);
+        JsonNode status = call(get("/api/events/roulette/status"), token, null, 200);
+        assertThat(status.get("spunToday").asBoolean()).isFalse();
+        assertThat(status.get("prizes")).hasSize(4);
+
+        if (!status.get("eventActive").asBoolean()) {
+            // 테스트가 이벤트 기간 밖에서 돌 때
+            call(post("/api/events/roulette/spin"), token, null, 400);
+            return;
+        }
+        JsonNode result = call(post("/api/events/roulette/spin"), token, null, 200);
+        assertThat(result.get("prize").asText()).isIn("MISS", "OFF_10", "OFF_20", "OFF_50");
+        if (!"MISS".equals(result.get("prize").asText())) {
+            assertThat(result.get("coupon").get("discountRate").asInt()).isEqualTo(result.get("rate").asInt());
+            assertThat(call(get("/api/coupons/me"), token, null, 200)).hasSize(1);
+        }
+        call(post("/api/events/roulette/spin"), token, null, 409);
+        assertThat(call(get("/api/events/roulette/status"), token, null, 200).get("spunToday").asBoolean()).isTrue();
     }
 
     @Test

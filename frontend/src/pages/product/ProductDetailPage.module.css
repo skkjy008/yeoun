@@ -97,6 +97,15 @@
   font-size: 24px;
   color: var(--color-brown);
 }
+.listPrice {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+.listPrice span {
+  color: var(--color-brown);
+  font-weight: 500;
+}
 .priceHint {
   font-size: 11px;
   line-height: 1.8;

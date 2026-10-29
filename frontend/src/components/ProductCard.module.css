@@ -95,6 +95,16 @@
 .price {
   font-size: 15px;
 }
+.listPrice {
+  margin-right: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.saleRate {
+  margin-right: 6px;
+  color: var(--color-brown);
+  font-weight: 500;
+}
 
 @media (max-width: 720px) {
   .imageWrap {

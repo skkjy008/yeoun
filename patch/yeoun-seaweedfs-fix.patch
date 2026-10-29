@@ -1,0 +1,260 @@
+diff --git a/.env.example b/.env.example
+index e9349ad..903617a 100644
+--- a/.env.example
++++ b/.env.example
+@@ -13,8 +13,8 @@ YOUTUBE_API_KEY=
+ TOSS_CLIENT_KEY=
+ TOSS_SECRET_KEY=
+ 
+-# 이미지 저장소 (로컬은 MinIO, 운영은 AWS S3)
++# 이미지 저장소 (로컬은 SeaweedFS, 운영은 AWS S3). S3_BUCKET을 비우면 서버 디스크에 저장합니다.
+ S3_BUCKET=yeoun
+ S3_ACCESS_KEY=yeoun
+-S3_SECRET_KEY=yeoun-minio-secret
+-S3_PUBLIC_BASE_URL=http://localhost:9000/yeoun
++S3_SECRET_KEY=yeoun-local-secret
++S3_PUBLIC_BASE_URL=http://localhost:8333/yeoun
+diff --git a/README.md b/README.md
+index 205e4be..7554d04 100644
+--- a/README.md
++++ b/README.md
+@@ -19,7 +19,7 @@
+ | Database | MySQL 8 (로컬·운영), H2 (테스트), Flyway |
+ | Frontend | React 18, TypeScript, Vite, React Router, CSS Modules, lucide-react |
+ | AI | Claude API (취향 큐레이션 문장 생성, 키가 없으면 규칙 기반으로 대체) |
+-| 외부 연동 | 토스페이먼츠 결제위젯, YouTube Data API v3, AWS S3(로컬 MinIO), Redis Pub/Sub |
++| 외부 연동 | 토스페이먼츠 결제위젯, YouTube Data API v3, AWS S3(로컬 SeaweedFS), Redis Pub/Sub |
+ | DevOps | Docker, Docker Compose, Nginx, GitHub Actions (CI / CD → GHCR → AWS EC2), AWS RDS |
+ 
+ ## 구현 범위 (1단계)
+@@ -65,7 +65,7 @@
+   - 정산: 구매 확정 금액에서 수수료 10%를 뺀 금액을 '정산 대기'로 → 운영자가 송금 후 '지급 완료' 처리
+ - [x] **테마 큐레이션** `/theme`, `/theme/:slug` — 계절·기념일 테마에 상품과 큐레이터 한 줄 소개를 묶고 기간 안의 테마를 먼저 노출, 운영자 CRUD
+ - [x] **Flyway** — `db/migration/common`(H2·MySQL 공용) + `db/migration/mysql`(기존 DB 정리), Hibernate는 `validate`만
+-- [x] **이미지 업로드** — S3(로컬은 MinIO) 또는 서버 디스크, 파일 시그니처로 JPG·PNG·WEBP만 허용, 상품·테마(운영자)·커미션 참고 이미지(회원)
++- [x] **이미지 업로드** — S3(로컬은 SeaweedFS) 또는 서버 디스크, 파일 시그니처로 JPG·PNG·WEBP만 허용, 상품·테마(운영자)·커미션 참고 이미지(회원)
+ - [x] **Redis Pub/Sub 실시간 알림** — 알림 커밋 후 Redis 채널로 발행, 모든 서버가 구독해 자기에게 연결된 사용자에게 SSE 전송
+ 
+ ### 다음 단계
+@@ -81,10 +81,10 @@
+ cp .env.example .env
+ docker compose up --build
+ # http://localhost            웹
+-# http://localhost:9001       MinIO 콘솔 (yeoun / yeoun-minio-secret)
++# http://localhost:8333       SeaweedFS S3 (업로드 이미지)
+ ```
+ 
+-MySQL·Redis·MinIO가 함께 뜨고, 백엔드가 시작하면서 Flyway로 스키마를 만듭니다.
++MySQL·Redis·SeaweedFS(S3 호환)가 함께 뜨고, 백엔드가 시작하면서 Flyway로 스키마를 만듭니다.
+ 
+ #### 토스페이먼츠 테스트 결제 해 보기
+ 
+diff --git a/backend/src/main/java/com/yeoun/global/config/YeounProperties.java b/backend/src/main/java/com/yeoun/global/config/YeounProperties.java
+index 17ff878..6166bd3 100644
+--- a/backend/src/main/java/com/yeoun/global/config/YeounProperties.java
++++ b/backend/src/main/java/com/yeoun/global/config/YeounProperties.java
+@@ -41,7 +41,7 @@ public record YeounProperties(Jwt jwt, Cors cors, Seed seed, Youtube youtube, Ai
+     public record Commission(double feeRate, int autoConfirmDays, double inProgressRefundRate) {
+     }
+ 
+-    /** 업로드 저장소: s3.bucket 이 있으면 S3(또는 MinIO), 없으면 로컬 디스크 */
++    /** 업로드 저장소: s3.bucket 이 있으면 S3(또는 S3 호환 저장소), 없으면 로컬 디스크 */
+     public record Storage(String localDir, String localPublicPath, long maxFileSize, S3 s3) {
+         public record S3(String bucket, String region, String endpoint, String accessKey, String secretKey,
+                          String publicBaseUrl, boolean pathStyle) {
+diff --git a/backend/src/main/java/com/yeoun/upload/S3StorageService.java b/backend/src/main/java/com/yeoun/upload/S3StorageService.java
+index 2ad8b3d..d700d40 100644
+--- a/backend/src/main/java/com/yeoun/upload/S3StorageService.java
++++ b/backend/src/main/java/com/yeoun/upload/S3StorageService.java
+@@ -12,10 +12,13 @@ import software.amazon.awssdk.regions.Region;
+ import software.amazon.awssdk.services.s3.S3Client;
+ import software.amazon.awssdk.services.s3.S3ClientBuilder;
+ import software.amazon.awssdk.services.s3.S3Configuration;
++import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
++import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
++import software.amazon.awssdk.services.s3.model.S3Exception;
+ 
+ /**
+- * AWS S3 업로드. endpoint를 지정하면 MinIO 같은 S3 호환 저장소에도 그대로 동작합니다.
++ * AWS S3 업로드. endpoint를 지정하면 SeaweedFS 같은 S3 호환 저장소에도 그대로 동작합니다.
+  * 운영(EC2)에서는 access-key를 비워 두고 인스턴스 IAM 역할의 자격 증명을 사용하는 것을 권장합니다.
+  */
+ public class S3StorageService implements StorageService {
+@@ -23,13 +26,14 @@ public class S3StorageService implements StorageService {
+     private final S3Client client;
+     private final String bucket;
+     private final String publicBaseUrl;
++    private volatile boolean bucketReady;
+ 
+     public S3StorageService(YeounProperties.Storage.S3 config) {
+         S3ClientBuilder builder = S3Client.builder()
+                 .region(Region.of(config.region()))
+                 .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(config.pathStyle()).build());
+         if (config.endpoint() != null && !config.endpoint().isBlank()) {
+-            // MinIO 등 S3 호환 저장소: 필요한 경우에만 체크섬을 계산해 호환성을 높입니다.
++            // SeaweedFS 등 S3 호환 저장소: 필요한 경우에만 체크섬을 계산해 호환성을 높입니다.
+             builder.endpointOverride(URI.create(config.endpoint()))
+                     .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+                     .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED);
+@@ -51,6 +55,7 @@ public class S3StorageService implements StorageService {
+ 
+     @Override
+     public String store(String key, byte[] bytes, String contentType) {
++        ensureBucket();
+         client.putObject(PutObjectRequest.builder()
+                         .bucket(bucket)
+                         .key(key)
+@@ -61,6 +66,27 @@ public class S3StorageService implements StorageService {
+         return publicBaseUrl + "/" + key;
+     }
+ 
++    /** 로컬 저장소(SeaweedFS 등)는 버킷이 없을 수 있어 첫 업로드 때 확인하고 없으면 만듭니다. */
++    private void ensureBucket() {
++        if (bucketReady) {
++            return;
++        }
++        synchronized (this) {
++            if (bucketReady) {
++                return;
++            }
++            try {
++                client.headBucket(HeadBucketRequest.builder().bucket(bucket).build());
++            } catch (S3Exception e) {
++                if (e.statusCode() != 404) {
++                    throw e;
++                }
++                client.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
++            }
++            bucketReady = true;
++        }
++    }
++
+     @Override
+     public String name() {
+         return "s3";
+diff --git a/backend/src/main/java/com/yeoun/upload/StorageService.java b/backend/src/main/java/com/yeoun/upload/StorageService.java
+index 153e511..1aa8aa3 100644
+--- a/backend/src/main/java/com/yeoun/upload/StorageService.java
++++ b/backend/src/main/java/com/yeoun/upload/StorageService.java
+@@ -1,6 +1,6 @@
+ package com.yeoun.upload;
+ 
+-/** 업로드 파일 저장소. S3(또는 S3 호환 MinIO)와 로컬 디스크 구현이 있습니다. */
++/** 업로드 파일 저장소. S3(또는 S3 호환 저장소)와 로컬 디스크 구현이 있습니다. */
+ public interface StorageService {
+ 
+     /** 저장 후 브라우저에서 바로 쓸 수 있는 URL을 돌려줍니다. */
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 6f4c0f2..eb6321a 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,7 +1,7 @@
+ # 로컬 전체 실행: docker compose up --build  →  http://localhost
+ #  - mysql : DB (스키마는 백엔드 시작 시 Flyway가 만듭니다)
+ #  - redis : 실시간 알림 Pub/Sub (서버가 여러 대일 때 알림 공유)
+-#  - minio : S3 호환 이미지 저장소 (콘솔 http://localhost:9001, 계정 yeoun / yeoun-minio-secret)
++#  - seaweedfs : S3 호환 이미지 저장소 (http://localhost:8333)
+ services:
+   mysql:
+     image: mysql:8.4
+@@ -32,35 +32,15 @@ services:
+       timeout: 3s
+       retries: 20
+ 
+-  minio:
+-    image: minio/minio:latest
+-    command: server /data --console-address ":9001"
+-    environment:
+-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-yeoun}
+-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-yeoun-minio-secret}
++  # S3 호환 이미지 저장소 (SeaweedFS). MinIO는 2026년 9월부터 Docker Hub 이미지를 더 이상 제공하지 않아 교체했습니다.
++  # 로컬 개발용으로 인증 없이(Allow-All) 동작하며, 운영에서는 AWS S3를 사용합니다. 버킷은 첫 업로드 때 백엔드가 만듭니다.
++  seaweedfs:
++    image: chrislusf/seaweedfs:latest
++    command: server -s3 -s3.port=8333 -ip.bind=0.0.0.0 -dir=/data
+     ports:
+-      - "9000:9000"
+-      - "9001:9001"
++      - "8333:8333"
+     volumes:
+-      - minio-data:/data
+-    healthcheck:
+-      test: ["CMD", "mc", "ready", "local"]
+-      interval: 5s
+-      timeout: 3s
+-      retries: 20
+-
+-  # 버킷을 만들고 이미지 읽기를 공개로 설정한 뒤 종료됩니다.
+-  minio-init:
+-    image: minio/mc:latest
+-    depends_on:
+-      minio:
+-        condition: service_healthy
+-    entrypoint: >
+-      /bin/sh -c "
+-      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-yeoun} ${S3_SECRET_KEY:-yeoun-minio-secret} &&
+-      mc mb --ignore-existing local/${S3_BUCKET:-yeoun} &&
+-      mc anonymous set download local/${S3_BUCKET:-yeoun}
+-      "
++      - seaweedfs-data:/data
+ 
+   backend:
+     build: ./backend
+@@ -79,19 +59,19 @@ services:
+       REDIS_ENABLED: "true"
+       REDIS_HOST: redis
+       S3_BUCKET: ${S3_BUCKET:-yeoun}
+-      S3_ENDPOINT: http://minio:9000
++      S3_ENDPOINT: http://seaweedfs:8333
+       S3_PATH_STYLE: "true"
+       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-yeoun}
+-      S3_SECRET_KEY: ${S3_SECRET_KEY:-yeoun-minio-secret}
++      S3_SECRET_KEY: ${S3_SECRET_KEY:-yeoun-local-secret}
+       # 브라우저가 이미지를 받아 가는 주소
+-      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/yeoun}
++      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:8333/yeoun}
+     depends_on:
+       mysql:
+         condition: service_healthy
+       redis:
+         condition: service_healthy
+-      minio-init:
+-        condition: service_completed_successfully
++      seaweedfs:
++        condition: service_started
+ 
+   frontend:
+     build: ./frontend
+@@ -103,4 +83,4 @@ services:
+ 
+ volumes:
+   mysql-data:
+-  minio-data:
++  seaweedfs-data:
+diff --git a/docs/architecture.md b/docs/architecture.md
+index fc7451e..74b6e72 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -8,7 +8,7 @@ flowchart LR
+   nginx -- /api --> api[Spring Boot API]
+   api --> db[(MySQL / RDS)]
+   api <--> redis[(Redis<br/>알림 Pub/Sub)]
+-  api --> s3[(S3 / MinIO<br/>이미지)]
++  api --> s3[(S3 / SeaweedFS<br/>이미지)]
+   user -. 이미지 .-> s3
+   user -- 결제위젯 --> toss[토스페이먼츠]
+   api -- 승인·취소 --> toss
+diff --git a/frontend/src/components/ImageUpload.tsx b/frontend/src/components/ImageUpload.tsx
+index 48adc07..89c7ab8 100644
+--- a/frontend/src/components/ImageUpload.tsx
++++ b/frontend/src/components/ImageUpload.tsx
+@@ -14,7 +14,7 @@ interface Props {
+ 
+ const MAX_BYTES = 5 * 1024 * 1024;
+ 
+-/** 이미지 파일 하나를 골라 업로드하고 URL을 돌려줍니다. (S3/MinIO 또는 서버 디스크) */
++/** 이미지 파일 하나를 골라 업로드하고 URL을 돌려줍니다. (S3/SeaweedFS 또는 서버 디스크) */
+ export default function ImageUpload({ purpose, onUploaded, label = '이미지 올리기', className }: Props) {
+   const toast = useToast();
+   const input = useRef<HTMLInputElement>(null);

@@ -1,0 +1,34 @@
+[
+  {
+    "slug": "halloween-sale", "kind": "THEME_SALE", "sortOrder": 1,
+    "title": "할로윈 특가 — 고요하게 번지는 밤의 향",
+    "summary": "할로윈 테마에 담은 우디·스모키 향을 15% 특가로 만나보세요. 불을 낮춘 방에 어울리는 네 가지 향을 골랐어요.",
+    "body": "요란한 파티 대신, 불빛을 낮춘 방에서 보내는 할로윈은 어떠세요?\n돌 위로 피어오르는 연기, 불을 끈 뒤에도 남는 나무 향, 작은 불빛과 달콤한 앰버까지.\n할로윈 테마의 향을 이벤트 기간 동안 15% 특가로 준비했어요.\n\n· 대상: 할로윈 테마에 담긴 향 전체\n· 혜택: 15% 할인\n· 배송: 5만 원 이상 무료 배송",
+    "thumbnail": "/images/hero/hero-2.jpg", "start": "10-01", "end": "11-02",
+    "themeSlug": "halloween-night", "discountRate": 15
+  },
+  {
+    "slug": "daily-roulette", "kind": "ROULETTE", "sortOrder": 2,
+    "title": "하루 한 번, 여운 룰렛",
+    "summary": "매일 한 번 룰렛을 돌리고 최대 50% 할인 쿠폰을 받아 가세요. 당첨 쿠폰은 바로 마이페이지에 들어가요.",
+    "body": "하루에 한 번, 오늘의 향운을 시험해 보세요.\n10% · 20% · 50% 할인 쿠폰이 숨어 있어요. 할인율이 클수록 당첨되기 어려워요.\n\n· 참여: 회원 1인 1일 1회 (매일 자정에 다시 참여 가능)\n· 쿠폰: 3만 원 이상 주문 시 사용, 발급일로부터 7일\n· 최대 할인: 10% 1만 원 · 20% 2만 원 · 50% 3만 원",
+    "thumbnail": "/images/studio/dawn-grain.jpg", "start": "10-15", "end": "12-31",
+    "themeSlug": null, "discountRate": null
+  },
+  {
+    "slug": "autumn-sale", "kind": "THEME_SALE", "sortOrder": 3,
+    "title": "가을 특가 — 따뜻한 향으로 깊어지는 계절",
+    "summary": "가을 테마의 찻잎·나무 향을 10% 특가로 준비했어요. 해가 짧아지는 오후를 천천히 채워 보세요.",
+    "body": "바스락거리는 낙엽, 따뜻한 차 한 잔, 포근한 나무 향.\n가을 테마에 담긴 향들을 이벤트 기간 동안 10% 특가로 만나보세요.\n\n· 대상: 가을 테마에 담긴 향 전체\n· 혜택: 10% 할인\n· 함께 하면 좋은 것: 하루 한 번 룰렛 쿠폰과 함께 쓰면 더 가볍게",
+    "thumbnail": "/images/hero/hero-3.jpg", "start": "09-15", "end": "11-30",
+    "themeSlug": "autumn-woody", "discountRate": 10
+  },
+  {
+    "slug": "welcome-coupon", "kind": "WELCOME_COUPON", "sortOrder": 4,
+    "title": "신규 가입 웰컴 쿠폰",
+    "summary": "여운의 회원이 되신 모든 분께 3,000원 웰컴 쿠폰을 드려요. 버튼 한 번으로 받을 수 있어요.",
+    "body": "첫 만남을 위한 작은 선물을 준비했어요.\n회원이라면 누구나 한 번, 3,000원 할인 쿠폰을 받을 수 있어요.\n\n· 대상: 여운 회원 누구나 (1인 1회)\n· 혜택: 3만 원 이상 주문 시 3,000원 할인\n· 사용 기간: 발급일로부터 30일",
+    "thumbnail": "/images/common/signup.jpg", "start": null, "end": null,
+    "themeSlug": null, "discountRate": null
+  }
+]

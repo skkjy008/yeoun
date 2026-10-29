@@ -5,7 +5,7 @@ import type { Coupon, OrderLine, PaymentConfig, PaymentMethod, ProductDetail } f
 import { useAuth } from '../../auth/AuthContext';
 import { CompactFooter } from '../../components/layout/Footer';
 import { useToast } from '../../components/Toast';
-import { formatPrice, shippingFor } from '../../lib/format';
+import { couponBenefit, couponDiscount, formatPrice, shippingFor } from '../../lib/format';
 import { proceedPayment, resultPath, useTossWidget } from '../../lib/payment';
 import { openPostcode } from '../../lib/postcode';
 import { useShop } from '../../shop/ShopContext';
@@ -100,15 +100,16 @@ export default function CheckoutPage() {
       })),
     [products, state],
   );
-  const itemsAmount = lines.reduce((sum, l) => sum + l.product.price * l.quantity, 0);
+  const itemsAmount = lines.reduce((sum, l) => sum + l.product.salePrice * l.quantity, 0);
+  const saleDiscount = lines.reduce((sum, l) => sum + (l.product.price - l.product.salePrice) * l.quantity, 0);
   const quantity = lines.reduce((sum, l) => sum + l.quantity, 0);
   const usableCoupons = coupons.filter((c) => c.usable);
   const coupon = usableCoupons.find((c) => c.id === couponId);
-  const couponDiscount = coupon && itemsAmount >= coupon.minOrderAmount ? Math.min(coupon.discountAmount, itemsAmount) : 0;
-  const maxPoint = Math.max(0, Math.min(availablePoint, itemsAmount - couponDiscount));
+  const couponDiscountAmount = coupon ? couponDiscount(coupon, itemsAmount) : 0;
+  const maxPoint = Math.max(0, Math.min(availablePoint, itemsAmount - couponDiscountAmount));
   const pointUsed = Math.min(maxPoint, Math.max(0, Number(pointInput.replace(/[^0-9]/g, '')) || 0));
   const shippingFee = shippingFor(itemsAmount);
-  const total = itemsAmount - couponDiscount - pointUsed + shippingFee;
+  const total = itemsAmount - couponDiscountAmount - pointUsed + shippingFee;
   const currentMethod = METHODS.find((m) => m.value === method) ?? METHODS[0];
   const toss = useTossWidget(paymentConfig, total, 'toss-payment-methods', 'toss-agreement');
   const soldOutLine = lines.find((l) => l.product.soldOut || l.product.stock < l.quantity);
@@ -118,7 +119,7 @@ export default function CheckoutPage() {
     if (couponId !== '' || !itemsAmount) return;
     const best = usableCoupons
       .filter((c) => itemsAmount >= c.minOrderAmount)
-      .sort((a, b) => b.discountAmount - a.discountAmount)[0];
+      .sort((a, b) => couponDiscount(b, itemsAmount) - couponDiscount(a, itemsAmount))[0];
     if (best) setCouponId(best.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coupons, itemsAmount]);
@@ -333,10 +334,14 @@ export default function CheckoutPage() {
                     <p className={styles.lineName}>{product.name}</p>
                     <p className={styles.lineMeta}>
                       {product.category} · {product.volume} / {q}개
+                      {product.saleRate > 0 && ` · 테마 특가 ${product.saleRate}%`}
                     </p>
                     {(product.soldOut || product.stock < q) && <p className="error-text">재고가 부족해요. (남은 수량 {product.stock}개)</p>}
                   </div>
-                  <span className={styles.linePrice}>{formatPrice(product.price * q)}</span>
+                  <span className={styles.linePrice}>
+                    {product.saleRate > 0 && <s className={styles.lineListPrice}>{formatPrice(product.price * q)}</s>}
+                    {formatPrice(product.salePrice * q)}
+                  </span>
                 </div>
               ))}
               <div className={styles.lineTotal}>
@@ -358,7 +363,7 @@ export default function CheckoutPage() {
                   <option value="">적용하지 않음</option>
                   {usableCoupons.map((c) => (
                     <option key={c.id} value={c.id} disabled={itemsAmount < c.minOrderAmount}>
-                      {c.name} ({formatPrice(c.discountAmount)} · {formatPrice(c.minOrderAmount)} 이상)
+                      {c.name} ({couponBenefit(c)} · {formatPrice(c.minOrderAmount)} 이상)
                     </option>
                   ))}
                 </select>
@@ -428,11 +433,17 @@ export default function CheckoutPage() {
             <dl className={styles.summaryRows}>
               <div>
                 <dt>상품 합계</dt>
-                <dd>{formatPrice(itemsAmount)}</dd>
+                <dd>{formatPrice(itemsAmount + saleDiscount)}</dd>
               </div>
+              {saleDiscount > 0 && (
+                <div>
+                  <dt>테마 특가</dt>
+                  <dd>- {formatPrice(saleDiscount)}</dd>
+                </div>
+              )}
               <div>
                 <dt>쿠폰</dt>
-                <dd>{couponDiscount ? `- ${formatPrice(couponDiscount)}` : '0원'}</dd>
+                <dd>{couponDiscountAmount ? `- ${formatPrice(couponDiscountAmount)}` : '0원'}</dd>
               </div>
               <div>
                 <dt>적립금 사용</dt>
@@ -448,7 +459,7 @@ export default function CheckoutPage() {
               <span className={styles.totalLabel}>총 결제 예정 금액</span>
               <span className={`${styles.totalAmount} ${styles.totalAmountLarge}`}>{formatPrice(total)}</span>
               <p className={styles.totalNote}>
-                {lines.length}개 상품 · {couponDiscount || pointUsed ? `할인 ${formatPrice(couponDiscount + pointUsed)}` : '추가 할인 없음'}
+                {lines.length}개 상품 · {saleDiscount || couponDiscountAmount || pointUsed ? `할인 ${formatPrice(saleDiscount + couponDiscountAmount + pointUsed)}` : '추가 할인 없음'}
               </p>
             </div>
             <div className={styles.consents}>

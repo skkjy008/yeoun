@@ -1,0 +1,222 @@
+/* 이벤트 — 테마·커미션 화면과 같은 디자인 언어 */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-ink);
+  margin-bottom: 80px;
+}
+.row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  align-items: center;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--color-line);
+  transition: background-color 0.2s ease;
+}
+.row:hover { background: rgba(232, 224, 211, 0.25); }
+.thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  background: var(--color-sand);
+}
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rowTitle {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  line-height: 1.45;
+}
+.rowSummary {
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--color-poem);
+}
+.period {
+  font-size: 12px;
+  color: var(--color-muted);
+  font-family: var(--font-latin);
+}
+.chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+  background: var(--color-brown);
+  color: var(--color-paper);
+}
+.chipUPCOMING { background: var(--color-sand); color: var(--color-brown); }
+.chipENDED { background: transparent; color: var(--color-muted); border: 1px solid var(--color-line); }
+.rowEnded { opacity: 0.6; }
+
+/* 상세 */
+.hero {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 48px;
+  align-items: start;
+  padding-bottom: 56px;
+}
+.heroImage {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.heroCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.heroTitle {
+  font-family: var(--font-serif);
+  font-size: 32px;
+  line-height: 1.5;
+}
+.body {
+  font-size: 15px;
+  line-height: 2;
+  color: var(--color-poem);
+  white-space: pre-line;
+}
+.badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--color-sand);
+  color: var(--color-brown);
+  font-size: 13px;
+}
+.badge strong {
+  font-family: var(--font-latin);
+  font-size: 28px;
+  font-weight: 500;
+}
+.heroActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 48px;
+  padding-bottom: 80px;
+  border-top: 1px solid var(--color-line);
+}
+.sectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+.sectionHead h2 {
+  font-family: var(--font-serif);
+  font-size: 26px;
+}
+.products {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px 20px;
+}
+
+/* 룰렛 */
+.roulette {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 56px;
+  align-items: center;
+}
+.wheelWrap {
+  width: 445px;
+  max-width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.wheelScale {
+  transform-origin: top center;
+}
+.rouletteSide {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.odds {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.odds th,
+.odds td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-line);
+  text-align: left;
+}
+.odds th { color: var(--color-muted); font-weight: 400; font-size: 12px; }
+.odds td:last-child { font-family: var(--font-latin); }
+.spinButton {
+  height: 56px !important;
+  font-size: 15px !important;
+}
+.note {
+  font-size: 12px;
+  color: var(--color-muted);
+  line-height: 1.8;
+}
+
+/* 신규 가입 쿠폰 */
+.couponCard {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 24px;
+  padding: 32px;
+  background: var(--color-brown);
+  color: var(--color-paper);
+  position: relative;
+  max-width: 640px;
+}
+.couponCard::before,
+.couponCard::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  transform: translateY(-50%);
+}
+.couponCard::before { left: -12px; }
+.couponCard::after { right: -12px; }
+.couponCard strong {
+  font-family: var(--font-latin);
+  font-size: 40px;
+  font-weight: 500;
+}
+.couponCard p { font-size: 13px; color: var(--color-sand); line-height: 1.8; }
+.couponCard :global(.btn) { background: var(--color-paper); color: var(--color-brown); border-color: var(--color-paper); }
+
+@media (max-width: 1100px) {
+  .hero { grid-template-columns: 1fr; gap: 28px; }
+  .products { grid-template-columns: repeat(2, 1fr); }
+  .roulette { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 32px; }
+  .wheelWrap { width: 100%; }
+  .rouletteSide { width: 100%; }
+}
+@media (max-width: 720px) {
+  .row { grid-template-columns: 1fr; gap: 16px; padding: 24px 0; }
+  .rowTitle { font-size: 20px; }
+  .heroTitle { font-size: 24px; }
+  .couponCard { grid-template-columns: 1fr; padding: 24px; }
+  .couponCard strong { font-size: 32px; }
+}

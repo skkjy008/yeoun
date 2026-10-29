@@ -1,5 +1,6 @@
 package com.yeoun.product.service;
 
+import com.yeoun.event.service.SalePricing;
 import com.yeoun.global.common.PageResponse;
 import com.yeoun.global.exception.ApiException;
 import com.yeoun.product.domain.Category;
@@ -25,6 +26,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final ReviewRepository reviewRepository;
+    private final SalePricing salePricing;
 
     public record SearchCondition(String category, String keyword, String feeling, String scene, Integer minPrice,
                                   Integer maxPrice, String sort, int page, int size) {
@@ -35,7 +37,7 @@ public class ProductService {
         PageRequest pageable = PageRequest.of(Math.max(0, c.page()), Math.min(Math.max(1, c.size()), 60),
                 toSort(c.sort()));
         return PageResponse.of(productRepository.search(incCd, blankToNull(c.keyword()), blankToNull(c.feeling()),
-                blankToNull(c.scene()), c.minPrice(), c.maxPrice(), pageable), ProductSummary::from);
+                blankToNull(c.scene()), c.minPrice(), c.maxPrice(), pageable), salePricing.summaries());
     }
 
     private static Sort toSort(String sort) {
@@ -63,16 +65,18 @@ public class ProductService {
         Product product = productRepository.findById(id)
                 .filter(Product::isActive)
                 .orElseThrow(() -> ApiException.notFound("상품을 찾을 수 없습니다."));
-        return ProductDetail.from(product, reviewRepository.averageRating(id), reviewRepository.countByProductId(id));
+        return ProductDetail.from(product, reviewRepository.averageRating(id), reviewRepository.countByProductId(id),
+                salePricing.rateOf(id));
     }
 
     public List<ProductSummary> popular() {
-        return productRepository.findTop4ByActiveTrueOrderByPopularityDesc().stream().map(ProductSummary::from).toList();
+        return productRepository.findTop4ByActiveTrueOrderByPopularityDesc().stream().map(salePricing.summaries())
+                .toList();
     }
 
     public List<ProductSummary> newArrivals() {
         return productRepository.findTop4ByActiveTrueAndNewArrivalTrueOrderByIdAsc().stream()
-                .map(ProductSummary::from).toList();
+                .map(salePricing.summaries()).toList();
     }
 
     // ---------- 관리자 CRUD ----------

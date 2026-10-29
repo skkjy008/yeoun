@@ -17,7 +17,12 @@ export interface ProductSummary {
   subtitle: string;
   typeLabel: string;
   volume: string;
+  /** 정가 */
   price: number;
+  /** 테마 특가가 반영된 실제 판매가 (특가가 없으면 price와 같음) */
+  salePrice: number;
+  /** 테마 특가 할인율(%), 없으면 0 */
+  saleRate: number;
   soldOut: boolean;
   newArrival: boolean;
   imageUrl: string;
@@ -250,6 +255,9 @@ export interface CartItem {
   stock: number;
   soldOut: boolean;
   available: boolean;
+  /** 정가 (unitPrice는 테마 특가가 반영된 판매가) */
+  listPrice: number;
+  saleRate: number;
 }
 
 export interface Cart {
@@ -263,6 +271,9 @@ export interface Coupon {
   id: number;
   name: string;
   discountAmount: number;
+  /** 정률(%) 쿠폰이면 할인율, 정액 쿠폰은 null */
+  discountRate: number | null;
+  maxDiscountAmount: number | null;
   minOrderAmount: number;
   expiresAt: string;
   usedAt: string | null;
@@ -582,4 +593,53 @@ export interface UploadResult {
   key: string;
   size: number;
   contentType: string;
+}
+
+/* ───────── 이벤트 ───────── */
+
+export type EventKind = 'THEME_SALE' | 'ROULETTE' | 'WELCOME_COUPON';
+
+export interface EventSummary {
+  id: number;
+  slug: string;
+  kind: EventKind;
+  title: string;
+  summary: string;
+  thumbnailUrl: string;
+  startsOn: string | null;
+  endsOn: string | null;
+  status: 'ONGOING' | 'UPCOMING' | 'ENDED';
+}
+
+export interface EventDetail {
+  summary: EventSummary;
+  body: string | null;
+  themeSlug: string | null;
+  discountRate: number | null;
+}
+
+export interface RoulettePrizeInfo {
+  code: 'MISS' | 'OFF_10' | 'OFF_20' | 'OFF_50';
+  label: string;
+  rate: number;
+  maxDiscount: number;
+  probability: number;
+}
+
+export interface RouletteStatus {
+  spunToday: boolean;
+  todayPrize: RoulettePrizeInfo['code'] | null;
+  todayPrizeLabel: string | null;
+  nextAvailableAt: string;
+  eventActive: boolean;
+  prizes: RoulettePrizeInfo[];
+}
+
+export interface SpinResult {
+  prize: RoulettePrizeInfo['code'];
+  label: string;
+  rate: number;
+  coupon: Coupon | null;
+  message: string;
+  nextAvailableAt: string;
 }

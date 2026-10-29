@@ -271,3 +271,90 @@
     width: auto;
   }
 }
+
+/* 로그인 환영 문구: 우측 아이콘 아래 */
+.greeting {
+  position: absolute;
+  right: var(--page-x);
+  bottom: 8px;
+  font-size: 11px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 돋보기 → 상단 중앙 검색 바 */
+.searchLayer {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px));
+  margin-top: 12px;
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  box-shadow: 0 18px 40px rgba(39, 39, 32, 0.12);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: search-in 0.2s ease;
+  z-index: 20;
+}
+@keyframes search-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 6px 0 16px;
+  border: 1px solid var(--color-brown);
+  background: var(--color-bg);
+  color: var(--color-brown);
+}
+.searchBar input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  color: var(--color-ink);
+}
+.searchBar input::placeholder { color: var(--color-muted); }
+.searchSubmit {
+  height: 40px;
+  padding: 0 18px;
+  background: var(--color-brown);
+  color: var(--color-paper);
+  font-size: 13px;
+  font-weight: 500;
+}
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.suggestions span { color: var(--color-muted); margin-right: 4px; }
+.suggestions button {
+  padding: 4px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-poem);
+  background: var(--color-bg);
+}
+.suggestions button:hover { border-color: var(--color-brown); color: var(--color-brown); }
+
+@media (max-width: 1024px) {
+  .greeting { bottom: 4px; font-size: 10px; }
+}
+@media (max-width: 720px) {
+  .searchLayer { margin-top: 8px; padding: 14px; }
+  .searchBar input { font-size: 14px; }
+}

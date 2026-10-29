@@ -35,10 +35,10 @@ export default function MyCoupons() {
         <div className={styles.couponList}>
           {coupons?.map((c) => (
             <div key={c.id} className={`${styles.coupon} ${c.usable ? '' : styles.couponUsed}`}>
-              <strong>{formatPrice(c.discountAmount)}</strong>
+              <strong>{c.discountRate ? `${c.discountRate}%` : formatPrice(c.discountAmount)}</strong>
               <p>{c.name}</p>
               <span>
-                {formatPrice(c.minOrderAmount)} 이상 주문 시 · {formatDate(c.expiresAt)}까지
+                {formatPrice(c.minOrderAmount)} 이상 주문 시{c.maxDiscountAmount ? ` · 최대 ${formatPrice(c.maxDiscountAmount)} 할인` : ''} · {formatDate(c.expiresAt)}까지
                 {c.usedAt ? ` · ${formatDate(c.usedAt)} 사용` : !c.usable ? ' · 기간 만료' : ''}
               </span>
             </div>

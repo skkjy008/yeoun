@@ -16,12 +16,14 @@ export default function ProductCard({ product, variant = 'list', badge }: Props)
   const { wished, toggleWish } = useShop();
   const saved = wished(product.id);
   const image = variant === 'home' ? product.thumbnailUrl : product.imageUrl;
+  const onSale = product.saleRate > 0;
+  const label = badge ?? (onSale ? `${product.saleRate}% 특가` : undefined);
 
   return (
     <article className={`${styles.card} ${styles[variant]}`}>
       <Link to={`/products/${product.id}`} className={styles.imageWrap} aria-label={`${product.name} 상세 보기`}>
         <img src={image} alt={`${product.name} ${product.typeLabel}`} loading="lazy" />
-        {badge && <span className={styles.badge}>{badge}</span>}
+        {label && <span className={styles.badge}>{label}</span>}
         {product.soldOut && <span className={styles.soldOut}>SOLD OUT</span>}
       </Link>
       <button
@@ -39,7 +41,15 @@ export default function ProductCard({ product, variant = 'list', badge }: Props)
         </div>
         <p className={styles.name}>{product.name}</p>
         <p className={styles.subtitle}>{product.subtitle}</p>
-        <p className={styles.price}>{formatPrice(product.price)}</p>
+        {onSale ? (
+          <p className={styles.price}>
+            <s className={styles.listPrice}>{formatPrice(product.price)}</s>
+            <span className={styles.saleRate}>{product.saleRate}%</span>
+            {formatPrice(product.salePrice)}
+          </p>
+        ) : (
+          <p className={styles.price}>{formatPrice(product.price)}</p>
+        )}
       </Link>
     </article>
   );

@@ -58,10 +58,14 @@ const products = read('products.json').map((p, i) => {
   };
 });
 
+// 테마 특가: 이벤트·테마 데이터가 준비된 뒤(아래 이벤트 블록) 실제 계산 함수로 바뀝니다.
+let saleRateOf = (_productId) => 0;
+const salePriceOf = (price, rate) => (rate > 0 ? price - Math.floor((price * Math.min(rate, 100)) / 100 / 10) * 10 : price);
 const summary = (p) => ({
   id: p.id, incCd: p.incCd, category: LABEL[p.incCd], categorySlug: SLUG[p.incCd], name: p.name, subtitle: p.subtitle,
   typeLabel: p.typeLabel, volume: p.volume, price: p.price, soldOut: p.stock <= 0, newArrival: p.newArrival,
   imageUrl: p.imageUrl, thumbnailUrl: p.thumbnailUrl ?? p.imageUrl,
+  salePrice: salePriceOf(p.price, saleRateOf(p.id)), saleRate: saleRateOf(p.id),
 });
 
 const questions = read('questions.json').map((q) => ({
@@ -193,12 +197,21 @@ function stream(req, res, me) {
 
 let couponSeq = 1;
 const coupons = [];
-function issueWelcome(member) {
-  if (member.role === 'ADMIN') return;
-  coupons.push({ id: couponSeq++, memberId: member.id, name: '첫 향을 위한 환영 쿠폰', discountAmount: 3000, minOrderAmount: 30000, expiresAt: daysFromNow(30), usedAt: null });
+function issueWelcome(member, claim = false) {
+  if (!claim && member.role === 'ADMIN') return null;
+  const c = { id: couponSeq++, memberId: member.id, code: 'WELCOME', name: '첫 향을 위한 환영 쿠폰', discountAmount: 3000, discountRate: null, maxDiscountAmount: null, minOrderAmount: 30000, expiresAt: daysFromNow(30), usedAt: null };
+  coupons.push(c);
+  return c;
 }
+// 데모 회원은 DataSeeder 처럼 미리 받아 둔 상태, 새로 가입한 회원은 이벤트 페이지에서 직접 받습니다.
 members.forEach(issueWelcome);
-const couponDto = ({ memberId: _m, ...c }) => ({ ...c, usable: !c.usedAt && new Date(c.expiresAt) > new Date() });
+const couponAmount = (c, amount) => {
+  if (!c.discountRate) return Math.min(c.discountAmount, amount);
+  let d = Math.floor((amount * c.discountRate) / 100 / 10) * 10;
+  if (c.maxDiscountAmount) d = Math.min(d, c.maxDiscountAmount);
+  return Math.min(d, amount);
+};
+const couponDto = ({ memberId: _m, code: _c, ...c }) => ({ ...c, usable: !c.usedAt && new Date(c.expiresAt) > new Date() });
 
 let cartSeq = 1;
 const carts = []; // {id, memberId, productId, quantity, createdAt}
@@ -209,7 +222,9 @@ const cartDto = (memberId) => {
     .map((c) => {
       const p = products.find((x) => x.id === c.productId);
       const available = p.active && p.stock > 0 && p.stock >= c.quantity;
-      return { id: c.id, productId: p.id, name: p.name, category: LABEL[p.incCd], typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice: p.price, quantity: c.quantity, lineAmount: p.price * c.quantity, stock: p.stock, soldOut: p.stock <= 0, available };
+      const saleRate = saleRateOf(p.id);
+      const unitPrice = salePriceOf(p.price, saleRate);
+      return { id: c.id, productId: p.id, name: p.name, category: LABEL[p.incCd], typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice, quantity: c.quantity, lineAmount: unitPrice * c.quantity, stock: p.stock, soldOut: p.stock <= 0, available, listPrice: p.price, saleRate };
     });
   const itemsAmount = items.filter((i) => i.available).reduce((s, i) => s + i.lineAmount, 0);
   return { items, itemsAmount, shippingFee: shippingFor(itemsAmount), freeShippingThreshold: 50000 };
@@ -248,7 +263,8 @@ function createOrder(memberId, body, status = 'PENDING_PAYMENT', createdAt = now
     const p = products.find((x) => x.id === productId && x.active);
     if (!p) throw Object.assign(new Error('주문할 수 없는 상품이 포함되어 있습니다.'), { status: 404 });
     if (quantity > p.stock) throw Object.assign(new Error(p.stock === 0 ? `'${p.name}'은(는) 품절되었어요.` : `'${p.name}'의 남은 재고는 ${p.stock}개입니다.`), { status: 409 });
-    return { productId: p.id, name: p.name, typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice: p.price, quantity, lineAmount: p.price * quantity };
+    const unitPrice = salePriceOf(p.price, saleRateOf(p.id));
+    return { productId: p.id, name: p.name, typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice, quantity, lineAmount: unitPrice * quantity };
   });
   const itemsAmount = items.reduce((s, i) => s + i.lineAmount, 0);
   let couponDiscount = 0;
@@ -257,7 +273,7 @@ function createOrder(memberId, body, status = 'PENDING_PAYMENT', createdAt = now
     if (!c || c.usedAt) throw Object.assign(new Error('이미 사용했거나 기간이 지난 쿠폰입니다.'), { status: 400 });
     if (itemsAmount < c.minOrderAmount) throw Object.assign(new Error('쿠폰 최소 주문 금액을 확인해 주세요.'), { status: 400 });
     c.usedAt = now();
-    couponDiscount = Math.min(c.discountAmount, itemsAmount);
+    couponDiscount = couponAmount(c, itemsAmount);
   }
   const member = members.find((x) => x.id === memberId);
   const pointUsed = body.usePoint ?? 0;
@@ -640,6 +656,41 @@ const themeDetail = (t) => ({
   others: publishedThemes().filter((o) => o.slug !== t.slug).slice(0, 3),
 });
 
+// ── 이벤트 · 룰렛 ─────────────────────────────────────
+const kstToday = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+const kstTomorrowIso = () => `${new Date(Date.parse(kstToday()) + 86400000).toISOString().slice(0, 10)}T00:00:00+09:00`;
+const events = read('events.json').map((e, i) => ({
+  id: i + 1, slug: e.slug, kind: e.kind, title: e.title, summary: e.summary, body: e.body, thumbnailUrl: e.thumbnail,
+  startsOn: e.start ? `${year}-${e.start}` : null, endsOn: e.end ? `${year}-${e.end}` : null,
+  themeSlug: e.themeSlug, discountRate: e.discountRate, sortOrder: e.sortOrder ?? i,
+}));
+const eventStatus = (e) => (e.startsOn && e.startsOn > kstToday() ? 'UPCOMING' : e.endsOn && e.endsOn < kstToday() ? 'ENDED' : 'ONGOING');
+const eventSummary = (e) => ({ id: e.id, slug: e.slug, kind: e.kind, title: e.title, summary: e.summary, thumbnailUrl: e.thumbnailUrl, startsOn: e.startsOn, endsOn: e.endsOn, status: eventStatus(e) });
+const STATUS_ORDER = { ONGOING: 0, UPCOMING: 1, ENDED: 2 };
+const PRIZES = [
+  { code: 'MISS', label: '꽝', rate: 0, maxDiscount: 0, weight: 55 },
+  { code: 'OFF_10', label: '10% 할인', rate: 10, maxDiscount: 10000, weight: 30 },
+  { code: 'OFF_20', label: '20% 할인', rate: 20, maxDiscount: 20000, weight: 12 },
+  { code: 'OFF_50', label: '50% 할인', rate: 50, maxDiscount: 30000, weight: 3 },
+];
+const prizeInfo = ({ weight, ...p }) => ({ ...p, probability: weight });
+const spins = []; // {memberId, spunOn, prize}
+saleRateOf = (productId) => {
+  let best = 0;
+  for (const e of events) {
+    if (e.kind !== 'THEME_SALE' || !e.discountRate || eventStatus(e) !== 'ONGOING') continue;
+    const t = themes.find((x) => x.slug === e.themeSlug && x.published);
+    if (t?.items.some((i) => i.productId === productId)) best = Math.max(best, e.discountRate);
+  }
+  return best;
+};
+function rouletteStatus(memberId) {
+  const ev = events.find((e) => e.kind === 'ROULETTE');
+  const today = spins.find((x) => x.memberId === memberId && x.spunOn === kstToday());
+  const prize = today && PRIZES.find((p) => p.code === today.prize);
+  return { spunToday: !!today, todayPrize: prize?.code ?? null, todayPrizeLabel: prize?.label ?? null, nextAvailableAt: kstTomorrowIso(), eventActive: !!ev && eventStatus(ev) === 'ONGOING', prizes: PRIZES.map(prizeInfo) };
+}
+
 let uploadSeq = 1;
 const uploads = new Map();
 async function readMultipartFile(req) {
@@ -731,7 +782,6 @@ const server = createServer(async (req, res) => {
       if (members.some((x) => x.email === body.email)) return fail(res, 409, 'CONFLICT', '이미 가입된 이메일입니다.');
       const member = { id: memberSeq++, email: body.email, password: body.password, name: body.name, phone: body.phone, role: 'USER', grade: 'BRONZE', marketingAgreed: body.marketingAgreed, createdAt: now(), point: 0, address: null };
       members.push(member);
-      issueWelcome(member);
       if (body.perfumer) {
         applications.push({ id: appSeq++, memberId: member.id, ...body.perfumerApplication, status: 'PENDING', rejectReason: null, createdAt: now(), reviewedAt: null });
         notifications.unshift({ id: notiSeq++, recipientId: 1, type: 'PERFUMER_APPLICATION', message: `${member.name} 님이 조향사 인증을 요청했습니다.`, link: '/admin/perfumers', read: false, createdAt: now() });
@@ -742,6 +792,33 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { query: q.q, videoId: null, embedUrl: null, searchUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent(q.q)}` });
     }
 
+    if (method === 'GET' && path === '/api/events') return send(res, 200, [...events].sort((a, b) => STATUS_ORDER[eventStatus(a)] - STATUS_ORDER[eventStatus(b)] || a.sortOrder - b.sortOrder).map(eventSummary));
+    if (method === 'GET' && path === '/api/events/roulette/status') return send(res, 200, rouletteStatus(me?.id ?? null));
+    if (method === 'POST' && path === '/api/events/roulette/spin') {
+      if (!me) return fail(res, 401, 'UNAUTHORIZED', '로그인이 필요합니다.');
+      const st = rouletteStatus(me.id);
+      if (!st.eventActive) return fail(res, 400, 'BAD_REQUEST', '지금은 룰렛 이벤트 기간이 아니에요.');
+      if (st.spunToday) return fail(res, 409, 'CONFLICT', '오늘은 이미 룰렛을 돌렸어요. 내일 다시 도전해 주세요.');
+      let roll = Math.floor(Math.random() * 100);
+      const prize = PRIZES.find((p) => (roll -= p.weight) < 0);
+      let coupon = null;
+      if (prize.rate > 0) {
+        coupon = { id: couponSeq++, memberId: me.id, code: 'ROULETTE', name: `룰렛 ${prize.rate}% 할인 쿠폰`, discountAmount: 0, discountRate: prize.rate, maxDiscountAmount: prize.maxDiscount, minOrderAmount: 30000, expiresAt: daysFromNow(7), usedAt: null };
+        coupons.push(coupon);
+      }
+      spins.push({ memberId: me.id, spunOn: kstToday(), prize: prize.code });
+      const message = coupon ? `축하해요! ${prize.label} 쿠폰이 쿠폰함에 담겼어요.` : '아쉽지만 꽝이에요. 내일 다시 도전해 주세요.';
+      return send(res, 200, { prize: prize.code, label: prize.label, rate: prize.rate, coupon: coupon && couponDto(coupon), message, nextAvailableAt: kstTomorrowIso() });
+    }
+    if (method === 'POST' && path === '/api/events/welcome-coupon') {
+      if (!me) return fail(res, 401, 'UNAUTHORIZED', '로그인이 필요합니다.');
+      if (coupons.some((c) => c.memberId === me.id && c.code === 'WELCOME')) return fail(res, 409, 'CONFLICT', '이미 쿠폰을 받으셨습니다.');
+      return send(res, 201, couponDto(issueWelcome(me, true)));
+    }
+    if (method === 'GET' && (m = path.match(/^\/api\/events\/([\w-]+)$/))) {
+      const e = events.find((x) => x.slug === m[1]);
+      return e ? send(res, 200, { summary: eventSummary(e), body: e.body, themeSlug: e.themeSlug, discountRate: e.discountRate }) : fail(res, 404, 'NOT_FOUND', '이벤트를 찾을 수 없습니다.');
+    }
     if (method === 'GET' && path === '/api/themes') return send(res, 200, publishedThemes());
     if (method === 'GET' && (m = path.match(/^\/api\/themes\/([\w-]+)$/))) {
       const t = themes.find((x) => x.slug === m[1] && x.published);

@@ -26,6 +26,7 @@ import lombok.NoArgsConstructor;
 public class Coupon extends BaseTimeEntity {
 
     public static final String WELCOME = "WELCOME";
+    public static final String ROULETTE = "ROULETTE";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -48,6 +49,14 @@ public class Coupon extends BaseTimeEntity {
     @Column(name = "min_order_amount", nullable = false)
     private int minOrderAmount;
 
+    /** 정률 할인(%) 쿠폰이면 할인율. 정액 쿠폰은 null */
+    @Column(name = "discount_rate")
+    private Integer discountRate;
+
+    /** 정률 할인 쿠폰의 최대 할인 금액 */
+    @Column(name = "max_discount_amount")
+    private Integer maxDiscountAmount;
+
     @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 
@@ -62,6 +71,31 @@ public class Coupon extends BaseTimeEntity {
         this.discountAmount = discountAmount;
         this.minOrderAmount = minOrderAmount;
         this.expiresAt = expiresAt;
+    }
+
+    /** 정률(%) 할인 쿠폰 */
+    public static Coupon percent(Member member, String code, String name, int rate, int maxDiscount,
+                                 int minOrderAmount, LocalDateTime expiresAt) {
+        Coupon coupon = new Coupon(member, code, name, 0, minOrderAmount, expiresAt);
+        coupon.discountRate = rate;
+        coupon.maxDiscountAmount = maxDiscount;
+        return coupon;
+    }
+
+    public boolean isPercent() {
+        return discountRate != null && discountRate > 0;
+    }
+
+    /** 이 주문 금액에 적용했을 때의 할인 금액 (정률은 10원 단위 내림, 최대 할인 금액까지) */
+    public int discountFor(int orderAmount) {
+        if (!isPercent()) {
+            return Math.min(discountAmount, orderAmount);
+        }
+        int discount = orderAmount * discountRate / 100 / 10 * 10;
+        if (maxDiscountAmount != null) {
+            discount = Math.min(discount, maxDiscountAmount);
+        }
+        return Math.min(discount, orderAmount);
     }
 
     public static Coupon welcome(Member member) {
@@ -85,7 +119,7 @@ public class Coupon extends BaseTimeEntity {
             throw ApiException.badRequest("%,d원 이상 주문할 때 사용할 수 있는 쿠폰입니다.".formatted(minOrderAmount));
         }
         this.usedAt = LocalDateTime.now();
-        return Math.min(discountAmount, orderAmount);
+        return discountFor(orderAmount);
     }
 
     /** 주문 취소 시 쿠폰을 되돌립니다. */

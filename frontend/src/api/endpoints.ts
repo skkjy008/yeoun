@@ -1,5 +1,9 @@
 import { api } from './client';
 import type {
+  EventDetail,
+  EventSummary,
+  RouletteStatus,
+  SpinResult,
   AcceptResponse,
   CheckoutResponse,
   PaymentConfig,
@@ -205,4 +209,12 @@ export const adminApi = {
   paySettlement: (id: number) => api.post<Settlement>(`/api/admin/settlements/${id}/pay`),
   reject: (id: number, reason: string) =>
     api.post<PerfumerApplicationRow>(`/api/admin/perfumer-applications/${id}/reject`, { reason }),
+};
+
+export const eventApi = {
+  list: () => api.get<EventSummary[]>('/api/events'),
+  detail: (slug: string) => api.get<EventDetail>(`/api/events/${slug}`),
+  rouletteStatus: () => api.get<RouletteStatus>('/api/events/roulette/status'),
+  spin: () => api.post<SpinResult>('/api/events/roulette/spin'),
+  claimWelcome: () => api.post<Coupon>('/api/events/welcome-coupon'),
 };

@@ -1,0 +1,49 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(20, 18, 14, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fade 0.2s ease;
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal {
+  position: relative;
+  width: min(420px, 100%);
+  background: var(--color-paper);
+  padding: 36px 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+}
+.close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: var(--color-muted);
+}
+.title {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  line-height: 1.4;
+}
+.body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--color-poem);
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.actions :global(.btn) { height: 46px; flex: 1; }

@@ -389,6 +389,7 @@
 .lineName { font-size: 14px; font-weight: 500; }
 .lineMeta { font-size: 11px; color: var(--color-muted); margin-top: 4px; }
 .linePrice { font-size: 13px; }
+.lineListPrice { margin-right: 6px; font-size: 11px; color: var(--color-muted); }
 .lineTotal {
   display: flex;
   justify-content: space-between;

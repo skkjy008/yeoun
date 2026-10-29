@@ -29,6 +29,7 @@ import CheckoutPage from './pages/order/CheckoutPage';
 import OrderCompletePage from './pages/order/OrderCompletePage';
 import { PaymentFailPage, PaymentSuccessPage } from './pages/order/PaymentResultPage';
 import { ThemeDetailPage, ThemeListPage } from './pages/theme/ThemePages';
+import { EventDetailPage, EventListPage } from './pages/event/EventPages';
 import ProductDetailPage from './pages/product/ProductDetailPage';
 import CategoryPage from './pages/shop/CategoryPage';
 
@@ -115,6 +116,8 @@ export default function App() {
             />
             <Route path="/theme" element={<ThemeListPage />} />
             <Route path="/theme/:slug" element={<ThemeDetailPage />} />
+            <Route path="/events" element={<EventListPage />} />
+            <Route path="/events/:slug" element={<EventDetailPage />} />
             <Route
               path="/payments/success"
               element={

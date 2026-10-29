@@ -55,12 +55,17 @@ public class OrderItem {
     private int lineAmount;
 
     public OrderItem(Product product, int quantity) {
+        this(product, quantity, product.getPrice());
+    }
+
+    /** unitPrice: 주문 시점의 실제 판매가(테마 특가 반영) */
+    public OrderItem(Product product, int quantity, int unitPrice) {
         this.product = product;
         this.productName = product.getName();
         this.typeLabel = product.getTypeLabel();
         this.volume = product.getVolume();
         this.imageUrl = product.getImageUrl();
-        this.unitPrice = product.getPrice();
+        this.unitPrice = unitPrice;
         this.quantity = quantity;
         this.lineAmount = unitPrice * quantity;
     }

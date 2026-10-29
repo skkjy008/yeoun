@@ -5,6 +5,7 @@ import { productApi } from '../../api/endpoints';
 import type { FilterOptions, PageResponse, ProductSummary } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import Dropdown from '../../components/Dropdown';
+import PriceRange, { priceLabel } from '../../components/PriceRange';
 import ProductCard from '../../components/ProductCard';
 import { Footer } from '../../components/layout/Footer';
 import { CATEGORY_META } from '../../lib/format';
@@ -12,13 +13,6 @@ import NotFoundPage from '../NotFoundPage';
 import styles from './CategoryPage.module.css';
 
 const PAGE_SIZE = 9;
-
-const PRICE_OPTIONS = [
-  { value: '', label: '전체' },
-  { value: '0-30000', label: '3만원 이하' },
-  { value: '30000-50000', label: '3만~5만원' },
-  { value: '50000-', label: '5만원 이상' },
-];
 
 const SORT_OPTIONS = [
   { value: 'popular', label: '여운 추천순' },
@@ -89,7 +83,7 @@ export default function CategoryPage() {
   };
 
   const filterSummary = useMemo(() => {
-    const active = [keyword && `'${keyword}'`, feeling, scene, PRICE_OPTIONS.find((o) => o.value === price && o.value)?.label]
+    const active = [keyword && `'${keyword}'`, feeling, scene, price && priceLabel(price)]
       .filter(Boolean)
       .join(' · ');
     return active ? `${active} 향을 보고 있어요` : '모든 향을 보고 있어요';
@@ -165,7 +159,7 @@ export default function CategoryPage() {
               />
             </>
           )}
-          <Dropdown label="가격" value={price} options={PRICE_OPTIONS} onChange={(v) => update('price', v)} />
+          <PriceRange value={price} onChange={(v) => update('price', v)} />
           <span className={styles.filterSummary}>{filterSummary}</span>
         </div>
 

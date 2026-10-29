@@ -3,6 +3,7 @@ package com.yeoun.coupon.service;
 import com.yeoun.coupon.domain.Coupon;
 import com.yeoun.coupon.dto.CouponResponse;
 import com.yeoun.coupon.repository.CouponRepository;
+import com.yeoun.global.exception.ApiException;
 import com.yeoun.member.domain.Member;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -16,12 +17,18 @@ public class CouponService {
 
     private final CouponRepository couponRepository;
 
-    /** 회원가입 시 환영 쿠폰(3,000원)을 한 번 발급합니다. */
+    /** 신규 가입 이벤트: 회원마다 환영 쿠폰(3,000원)을 한 번만 받을 수 있습니다. */
     @Transactional
-    public void issueWelcome(Member member) {
-        if (!couponRepository.existsByMemberIdAndCode(member.getId(), Coupon.WELCOME)) {
-            couponRepository.save(Coupon.welcome(member));
+    public CouponResponse claimWelcome(Member member) {
+        if (couponRepository.existsByMemberIdAndCode(member.getId(), Coupon.WELCOME)) {
+            throw ApiException.conflict("이미 쿠폰을 받으셨습니다.");
         }
+        return CouponResponse.from(couponRepository.save(Coupon.welcome(member)));
+    }
+
+    @Transactional
+    public Coupon save(Coupon coupon) {
+        return couponRepository.save(coupon);
     }
 
     public List<CouponResponse> findMine(Long memberId) {

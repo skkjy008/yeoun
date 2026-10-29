@@ -37,6 +37,9 @@ import com.yeoun.product.domain.Track;
 import com.yeoun.product.repository.ProductRepository;
 import com.yeoun.review.domain.Review;
 import com.yeoun.review.repository.ReviewRepository;
+import com.yeoun.event.domain.Event;
+import com.yeoun.event.domain.EventKind;
+import com.yeoun.event.repository.EventRepository;
 import com.yeoun.theme.domain.Theme;
 import com.yeoun.theme.repository.ThemeRepository;
 import java.io.IOException;
@@ -80,6 +83,7 @@ public class DataSeeder implements ApplicationRunner {
     private final CommissionProposalRepository proposalRepository;
     private final SettlementRepository settlementRepository;
     private final ThemeRepository themeRepository;
+    private final EventRepository eventRepository;
 
     @Override
     @Transactional
@@ -113,6 +117,9 @@ public class DataSeeder implements ApplicationRunner {
         }
         if (themeRepository.count() == 0) {
             seedThemes();
+        }
+        if (eventRepository.count() == 0) {
+            seedEvents();
         }
     }
 
@@ -378,6 +385,23 @@ public class DataSeeder implements ApplicationRunner {
             }
             theme.replaceProducts(items, notes);
             themeRepository.save(theme);
+        }
+    }
+
+    /** 이벤트 예시 4개 (기간은 올해 날짜로) */
+    private void seedEvents() throws IOException {
+        int year = LocalDate.now().getYear();
+        for (JsonNode e : read("seed/events.json")) {
+            LocalDate start = monthDay(text(e, "start"), year);
+            LocalDate end = monthDay(text(e, "end"), year);
+            if (start != null && end != null && end.isBefore(start)) {
+                end = end.plusYears(1);
+            }
+            JsonNode rate = e.get("discountRate");
+            eventRepository.save(new Event(e.get("slug").asText(), EventKind.valueOf(e.get("kind").asText()),
+                    e.get("title").asText(), e.get("summary").asText(), text(e, "body"), e.get("thumbnail").asText(),
+                    start, end, text(e, "themeSlug"), rate == null || rate.isNull() ? null : rate.asInt(),
+                    e.get("sortOrder").asInt()));
         }
     }
 

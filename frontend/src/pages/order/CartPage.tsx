@@ -6,7 +6,7 @@ import { cartApi, couponApi } from '../../api/endpoints';
 import type { Cart, Coupon } from '../../api/types';
 import { CompactFooter } from '../../components/layout/Footer';
 import { useToast } from '../../components/Toast';
-import { FREE_SHIPPING, SHIPPING_FEE, formatPrice, shippingFor } from '../../lib/format';
+import { FREE_SHIPPING, SHIPPING_FEE, couponDiscount, formatPrice, shippingFor } from '../../lib/format';
 import { useShop } from '../../shop/ShopContext';
 import OrderIntro from './OrderIntro';
 import styles from './Commerce.module.css';
@@ -58,10 +58,10 @@ export default function CartPage() {
     () =>
       coupons
         .filter((c) => c.usable && amount >= c.minOrderAmount)
-        .sort((a, b) => b.discountAmount - a.discountAmount)[0],
+        .sort((a, b) => couponDiscount(b, amount) - couponDiscount(a, amount))[0],
     [coupons, amount],
   );
-  const discount = bestCoupon ? Math.min(bestCoupon.discountAmount, amount) : 0;
+  const discount = bestCoupon ? couponDiscount(bestCoupon, amount) : 0;
   const allChecked = availableItems.length > 0 && availableItems.every((i) => selected.has(i.id));
 
   const toggle = (id: number) =>
@@ -156,7 +156,15 @@ export default function CartPage() {
                     <span className={styles.rowMeta}>
                       {item.category} · {item.volume}
                     </span>
-                    <span className={styles.rowMeta}>단가 {formatPrice(item.unitPrice)}</span>
+                    <span className={styles.rowMeta}>
+                      단가 {formatPrice(item.unitPrice)}
+                      {item.saleRate > 0 && (
+                        <>
+                          {' '}
+                          <s>{formatPrice(item.listPrice)}</s> · 테마 특가 {item.saleRate}%
+                        </>
+                      )}
+                    </span>
                     {!item.available && (
                       <span className={styles.rowWarn}>
                         {item.soldOut ? '품절된 상품이에요.' : `남은 재고는 ${item.stock}개예요. 수량을 줄여 주세요.`}
@@ -251,7 +259,7 @@ export default function CartPage() {
         </div>
         <div>
           <h3>쿠폰과 적립금</h3>
-          <p>가입 시 받은 웰컴 쿠폰은 주문서에서 적용할 수 있어요. 배송이 완료되면 상품 금액의 1%가 적립됩니다.</p>
+          <p>이벤트에서 받은 웰컴·룰렛 쿠폰은 주문서에서 적용할 수 있어요. 배송이 완료되면 상품 금액의 1%가 적립됩니다.</p>
         </div>
         <div>
           <h3>마음에 남을 향을 천천히</h3>

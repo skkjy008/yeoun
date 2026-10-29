@@ -1,5 +1,6 @@
 package com.yeoun.product.dto;
 
+import com.yeoun.event.service.SalePricing;
 import com.yeoun.product.domain.Category;
 import com.yeoun.product.domain.Product;
 import com.yeoun.product.domain.ScentNote;
@@ -26,14 +27,17 @@ public final class ProductDtos {
 
     public record ProductSummary(Long id, String incCd, String category, String categorySlug, String name,
                                  String subtitle, String typeLabel, String volume, int price, boolean soldOut,
-                                 boolean newArrival, String imageUrl, String thumbnailUrl) {
+                                 boolean newArrival, String imageUrl, String thumbnailUrl, int salePrice,
+                                 int saleRate) {
 
-        public static ProductSummary from(Product p) {
+        /** price는 정가, salePrice는 테마 특가가 반영된 실제 판매가(특가가 없으면 정가와 같음) */
+        public static ProductSummary from(Product p, int saleRate) {
             Category c = p.getCategory();
             return new ProductSummary(p.getId(), p.getIncCd(), c.getLabel(), c.getSlug(), p.getName(),
                     p.getSubtitle(), p.getTypeLabel(), p.getVolume(), p.getPrice(), p.isSoldOut(),
                     p.isNewArrival(), p.getImageUrl(),
-                    p.getThumbnailUrl() == null ? p.getImageUrl() : p.getThumbnailUrl());
+                    p.getThumbnailUrl() == null ? p.getImageUrl() : p.getThumbnailUrl(),
+                    SalePricing.salePrice(p.getPrice(), saleRate), saleRate);
         }
     }
 
@@ -66,9 +70,13 @@ public final class ProductDtos {
                                 String storyBody, String safetyNotice, String playlistTitle, int intensity,
                                 int popularity, List<NoteDto> notes, List<String> ritualSteps,
                                 List<String> poemLines, List<TrackDto> tracks, Set<String> tags,
-                                double averageRating, long reviewCount) {
+                                double averageRating, long reviewCount, int salePrice, int saleRate) {
 
         public static ProductDetail from(Product p, double averageRating, long reviewCount) {
+            return from(p, averageRating, reviewCount, 0);
+        }
+
+        public static ProductDetail from(Product p, double averageRating, long reviewCount, int saleRate) {
             Category c = p.getCategory();
             return new ProductDetail(p.getId(), p.getIncCd(), c.getLabel(), c.getSlug(), p.getName(),
                     p.getSubtitle(), p.getEnglishLine(), p.getTypeLabel(), p.getVolume(), p.getPrice(),
@@ -81,7 +89,7 @@ public final class ProductDtos {
                     List.copyOf(p.getPoemLines()),
                     p.getTracks().stream().map(TrackDto::from).toList(),
                     Set.copyOf(p.getTags()),
-                    averageRating, reviewCount);
+                    averageRating, reviewCount, SalePricing.salePrice(p.getPrice(), saleRate), saleRate);
         }
     }
 

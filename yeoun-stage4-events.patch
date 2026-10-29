@@ -1,0 +1,3472 @@
+diff --git a/README.md b/README.md
+index 7554d04..95b182d 100644
+--- a/README.md
++++ b/README.md
+@@ -43,7 +43,7 @@
+   - 카드 정보는 받지 않는 모의 승인(`MockPaymentGateway`) — 실제 PG로 교체할 지점을 한 곳에 모음
+   - 결제 완료 → 상품 준비 중 → 배송 중 → 배송 완료 (단계 건너뛰기 불가), 결제 완료 단계에서 회원 직접 취소 시 재고·쿠폰·적립금 복구
+   - 배송 완료 시 상품 금액 1% 적립, 누적 구매 금액으로 등급 자동 상향
+-- [x] **쿠폰**: 가입 즉시 3,000원 웰컴 쿠폰(30,000원 이상, 30일)
++- [x] **쿠폰**: 3,000원 웰컴 쿠폰(30,000원 이상, 30일) — 4단계부터 이벤트 페이지에서 회원이 직접 받기(1인 1회)
+ - [x] **찜한 향**: 상품 카드 하트 ↔ 마이페이지 목록
+ - [x] **마이페이지**(Figma): 멤버십 요약, 등급 진행도, 주문 상태별 건수, 최근 주문, 주문 상세/취소, 쿠폰·적립금, 나의 의견, 나의 커미션, 회원정보·비밀번호 수정, 배송지 관리
+ - [x] **커스텀 커미션 게시판**(아트머그 방식)
+@@ -68,6 +68,17 @@
+ - [x] **이미지 업로드** — S3(로컬은 SeaweedFS) 또는 서버 디스크, 파일 시그니처로 JPG·PNG·WEBP만 허용, 상품·테마(운영자)·커미션 참고 이미지(회원)
+ - [x] **Redis Pub/Sub 실시간 알림** — 알림 커밋 후 Redis 채널로 발행, 모든 서버가 구독해 자기에게 연결된 사용자에게 SSE 전송
+ 
++## 구현 범위 (4단계)
++
++- [x] **이벤트** `/events`, `/events/:slug` — 썸네일·제목·내용·기간 목록(진행 중 먼저), 상세 4종
++  - 테마 특가(할로윈·가을): 관련 테마 향 소개 + 할인율 안내 + 테마 바로가기
++  - 하루 한 번 룰렛(`react-custom-roulette`): 꽝 55% · 10% 30% · 20% 12% · 50% 3%, **당첨은 서버가 결정**하고 휠은 결과 칸으로 애니메이션만, `(member_id, spun_on)` 유니크로 KST 기준 1일 1회 보장, 당첨 시 정률 쿠폰(최대 할인 한도, 7일) 발급
++  - 신규 가입 웰컴 쿠폰 받기: 발급 모달 / 이미 받은 회원은 409 안내
++- [x] **테마 특가 실결제 적용** — 진행 중인 THEME_SALE 이벤트의 테마 상품은 서버(`SalePricing`)가 판매가를 계산해 상품 목록·상세·찜·추천·장바구니에 `salePrice`/`saleRate`로 내려주고, 주문 시 다시 계산한 할인가를 주문 단가로 저장 (여러 특가가 겹치면 가장 큰 할인율, 10원 단위 절사, 이후 쿠폰·적립금은 할인가 기준)
++- [x] **정률 쿠폰** — `discount_rate`, `max_discount_amount` (Flyway V3), 10원 단위 절사
++- [x] 헤더: 로그인 시 'OOO님 환영합니다!', 돋보기 → 상단 중앙 검색 레이어(추천 검색어), 카테고리 가격 필터를 범위 슬라이더(`price=min-max`)로 변경
++- [x] 커스텀 의뢰 작성: 입력 검증 실패 시 토스트 + 해당 입력으로 스크롤·포커스 + 버튼 아래 안내
++
+ ### 다음 단계
+ 
+ - [ ] AWS 배포: EC2 + RDS(MySQL) + S3 + ElastiCache(Redis), GitHub Secrets 등록 후 자동 배포
+diff --git a/backend/src/main/java/com/yeoun/cart/dto/CartDtos.java b/backend/src/main/java/com/yeoun/cart/dto/CartDtos.java
+index 69d501c..511e30e 100644
+--- a/backend/src/main/java/com/yeoun/cart/dto/CartDtos.java
++++ b/backend/src/main/java/com/yeoun/cart/dto/CartDtos.java
+@@ -1,6 +1,7 @@
+ package com.yeoun.cart.dto;
+ 
+ import com.yeoun.cart.domain.CartItem;
++import com.yeoun.event.service.SalePricing;
+ import com.yeoun.product.domain.Product;
+ import jakarta.validation.constraints.Max;
+ import jakarta.validation.constraints.Min;
+@@ -20,14 +21,16 @@ public final class CartDtos {
+ 
+     public record CartItemResponse(Long id, Long productId, String name, String category, String typeLabel,
+                                    String volume, String imageUrl, int unitPrice, int quantity, int lineAmount,
+-                                   int stock, boolean soldOut, boolean available) {
++                                   int stock, boolean soldOut, boolean available, int listPrice, int saleRate) {
+ 
+-        public static CartItemResponse from(CartItem item) {
++        /** unitPrice는 테마 특가가 반영된 실제 판매가, listPrice는 정가 */
++        public static CartItemResponse from(CartItem item, int saleRate) {
+             Product p = item.getProduct();
+             boolean available = p.isActive() && !p.isSoldOut() && p.getStock() >= item.getQuantity();
++            int unitPrice = SalePricing.salePrice(p.getPrice(), saleRate);
+             return new CartItemResponse(item.getId(), p.getId(), p.getName(), p.getCategory().getLabel(),
+-                    p.getTypeLabel(), p.getVolume(), p.getImageUrl(), p.getPrice(), item.getQuantity(),
+-                    p.getPrice() * item.getQuantity(), p.getStock(), p.isSoldOut(), available);
++                    p.getTypeLabel(), p.getVolume(), p.getImageUrl(), unitPrice, item.getQuantity(),
++                    unitPrice * item.getQuantity(), p.getStock(), p.isSoldOut(), available, p.getPrice(), saleRate);
+         }
+     }
+ 
+diff --git a/backend/src/main/java/com/yeoun/cart/service/CartService.java b/backend/src/main/java/com/yeoun/cart/service/CartService.java
+index 31eb7b3..aef3d86 100644
+--- a/backend/src/main/java/com/yeoun/cart/service/CartService.java
++++ b/backend/src/main/java/com/yeoun/cart/service/CartService.java
+@@ -5,6 +5,7 @@ import com.yeoun.cart.dto.CartDtos.AddRequest;
+ import com.yeoun.cart.dto.CartDtos.CartItemResponse;
+ import com.yeoun.cart.dto.CartDtos.CartResponse;
+ import com.yeoun.cart.repository.CartItemRepository;
++import com.yeoun.event.service.SalePricing;
+ import com.yeoun.global.exception.ApiException;
+ import com.yeoun.member.domain.Member;
+ import com.yeoun.member.repository.MemberRepository;
+@@ -13,6 +14,7 @@ import com.yeoun.product.domain.Product;
+ import com.yeoun.product.repository.ProductRepository;
+ import java.util.Collection;
+ import java.util.List;
++import java.util.Map;
+ import lombok.RequiredArgsConstructor;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+@@ -25,12 +27,14 @@ public class CartService {
+     private final CartItemRepository cartItemRepository;
+     private final MemberRepository memberRepository;
+     private final ProductRepository productRepository;
++    private final SalePricing salePricing;
+ 
+     public CartResponse findMine(Long memberId) {
++        Map<Long, Integer> rates = salePricing.activeRates();
+         List<CartItemResponse> items = cartItemRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId)
+                 .stream()
+                 .filter(item -> item.getProduct().isActive())
+-                .map(CartItemResponse::from)
++                .map(item -> CartItemResponse.from(item, rates.getOrDefault(item.getProduct().getId(), 0)))
+                 .toList();
+         int itemsAmount = items.stream().filter(CartItemResponse::available).mapToInt(CartItemResponse::lineAmount)
+                 .sum();
+diff --git a/backend/src/main/java/com/yeoun/coupon/domain/Coupon.java b/backend/src/main/java/com/yeoun/coupon/domain/Coupon.java
+index 4730904..8f225bd 100644
+--- a/backend/src/main/java/com/yeoun/coupon/domain/Coupon.java
++++ b/backend/src/main/java/com/yeoun/coupon/domain/Coupon.java
+@@ -26,6 +26,7 @@ import lombok.NoArgsConstructor;
+ public class Coupon extends BaseTimeEntity {
+ 
+     public static final String WELCOME = "WELCOME";
++    public static final String ROULETTE = "ROULETTE";
+ 
+     @Id
+     @GeneratedValue(strategy = GenerationType.IDENTITY)
+@@ -48,6 +49,14 @@ public class Coupon extends BaseTimeEntity {
+     @Column(name = "min_order_amount", nullable = false)
+     private int minOrderAmount;
+ 
++    /** 정률 할인(%) 쿠폰이면 할인율. 정액 쿠폰은 null */
++    @Column(name = "discount_rate")
++    private Integer discountRate;
++
++    /** 정률 할인 쿠폰의 최대 할인 금액 */
++    @Column(name = "max_discount_amount")
++    private Integer maxDiscountAmount;
++
+     @Column(name = "expires_at", nullable = false)
+     private LocalDateTime expiresAt;
+ 
+@@ -64,6 +73,31 @@ public class Coupon extends BaseTimeEntity {
+         this.expiresAt = expiresAt;
+     }
+ 
++    /** 정률(%) 할인 쿠폰 */
++    public static Coupon percent(Member member, String code, String name, int rate, int maxDiscount,
++                                 int minOrderAmount, LocalDateTime expiresAt) {
++        Coupon coupon = new Coupon(member, code, name, 0, minOrderAmount, expiresAt);
++        coupon.discountRate = rate;
++        coupon.maxDiscountAmount = maxDiscount;
++        return coupon;
++    }
++
++    public boolean isPercent() {
++        return discountRate != null && discountRate > 0;
++    }
++
++    /** 이 주문 금액에 적용했을 때의 할인 금액 (정률은 10원 단위 내림, 최대 할인 금액까지) */
++    public int discountFor(int orderAmount) {
++        if (!isPercent()) {
++            return Math.min(discountAmount, orderAmount);
++        }
++        int discount = orderAmount * discountRate / 100 / 10 * 10;
++        if (maxDiscountAmount != null) {
++            discount = Math.min(discount, maxDiscountAmount);
++        }
++        return Math.min(discount, orderAmount);
++    }
++
+     public static Coupon welcome(Member member) {
+         return new Coupon(member, WELCOME, "첫 향을 위한 환영 쿠폰", 3_000, 30_000,
+                 LocalDateTime.now().plusDays(30));
+@@ -85,7 +119,7 @@ public class Coupon extends BaseTimeEntity {
+             throw ApiException.badRequest("%,d원 이상 주문할 때 사용할 수 있는 쿠폰입니다.".formatted(minOrderAmount));
+         }
+         this.usedAt = LocalDateTime.now();
+-        return Math.min(discountAmount, orderAmount);
++        return discountFor(orderAmount);
+     }
+ 
+     /** 주문 취소 시 쿠폰을 되돌립니다. */
+diff --git a/backend/src/main/java/com/yeoun/coupon/dto/CouponResponse.java b/backend/src/main/java/com/yeoun/coupon/dto/CouponResponse.java
+index 3047687..e67d6dd 100644
+--- a/backend/src/main/java/com/yeoun/coupon/dto/CouponResponse.java
++++ b/backend/src/main/java/com/yeoun/coupon/dto/CouponResponse.java
+@@ -3,11 +3,14 @@ package com.yeoun.coupon.dto;
+ import com.yeoun.coupon.domain.Coupon;
+ import java.time.LocalDateTime;
+ 
+-public record CouponResponse(Long id, String name, int discountAmount, int minOrderAmount, LocalDateTime expiresAt,
++/** discountRate가 있으면 정률(%) 쿠폰, 없으면 discountAmount 정액 쿠폰 */
++public record CouponResponse(Long id, String name, int discountAmount, Integer discountRate,
++                             Integer maxDiscountAmount, int minOrderAmount, LocalDateTime expiresAt,
+                              LocalDateTime usedAt, boolean usable) {
+ 
+     public static CouponResponse from(Coupon c) {
+-        return new CouponResponse(c.getId(), c.getName(), c.getDiscountAmount(), c.getMinOrderAmount(),
+-                c.getExpiresAt(), c.getUsedAt(), c.isUsable(LocalDateTime.now()));
++        return new CouponResponse(c.getId(), c.getName(), c.getDiscountAmount(), c.getDiscountRate(),
++                c.getMaxDiscountAmount(), c.getMinOrderAmount(), c.getExpiresAt(), c.getUsedAt(),
++                c.isUsable(LocalDateTime.now()));
+     }
+ }
+diff --git a/backend/src/main/java/com/yeoun/coupon/service/CouponService.java b/backend/src/main/java/com/yeoun/coupon/service/CouponService.java
+index fb171c0..e4e49ef 100644
+--- a/backend/src/main/java/com/yeoun/coupon/service/CouponService.java
++++ b/backend/src/main/java/com/yeoun/coupon/service/CouponService.java
+@@ -3,6 +3,7 @@ package com.yeoun.coupon.service;
+ import com.yeoun.coupon.domain.Coupon;
+ import com.yeoun.coupon.dto.CouponResponse;
+ import com.yeoun.coupon.repository.CouponRepository;
++import com.yeoun.global.exception.ApiException;
+ import com.yeoun.member.domain.Member;
+ import java.util.List;
+ import lombok.RequiredArgsConstructor;
+@@ -16,12 +17,18 @@ public class CouponService {
+ 
+     private final CouponRepository couponRepository;
+ 
+-    /** 회원가입 시 환영 쿠폰(3,000원)을 한 번 발급합니다. */
++    /** 신규 가입 이벤트: 회원마다 환영 쿠폰(3,000원)을 한 번만 받을 수 있습니다. */
+     @Transactional
+-    public void issueWelcome(Member member) {
+-        if (!couponRepository.existsByMemberIdAndCode(member.getId(), Coupon.WELCOME)) {
+-            couponRepository.save(Coupon.welcome(member));
++    public CouponResponse claimWelcome(Member member) {
++        if (couponRepository.existsByMemberIdAndCode(member.getId(), Coupon.WELCOME)) {
++            throw ApiException.conflict("이미 쿠폰을 받으셨습니다.");
+         }
++        return CouponResponse.from(couponRepository.save(Coupon.welcome(member)));
++    }
++
++    @Transactional
++    public Coupon save(Coupon coupon) {
++        return couponRepository.save(coupon);
+     }
+ 
+     public List<CouponResponse> findMine(Long memberId) {
+diff --git a/backend/src/main/java/com/yeoun/event/controller/EventController.java b/backend/src/main/java/com/yeoun/event/controller/EventController.java
+new file mode 100644
+index 0000000..2ff9f96
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/controller/EventController.java
+@@ -0,0 +1,55 @@
++package com.yeoun.event.controller;
++
++import com.yeoun.coupon.dto.CouponResponse;
++import com.yeoun.event.dto.EventDtos.EventDetail;
++import com.yeoun.event.dto.EventDtos.EventSummary;
++import com.yeoun.event.dto.EventDtos.RouletteStatus;
++import com.yeoun.event.dto.EventDtos.SpinResult;
++import com.yeoun.event.service.EventService;
++import com.yeoun.global.security.AuthMember;
++import java.util.List;
++import lombok.RequiredArgsConstructor;
++import org.springframework.http.HttpStatus;
++import org.springframework.security.core.annotation.AuthenticationPrincipal;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.ResponseStatus;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequiredArgsConstructor
++@RequestMapping("/api/events")
++public class EventController {
++
++    private final EventService eventService;
++
++    @GetMapping
++    public List<EventSummary> list() {
++        return eventService.list();
++    }
++
++    @GetMapping("/{slug}")
++    public EventDetail detail(@PathVariable String slug) {
++        return eventService.detail(slug);
++    }
++
++    /** 비회원도 볼 수 있음 (spunToday는 항상 false) */
++    @GetMapping("/roulette/status")
++    public RouletteStatus rouletteStatus(@AuthenticationPrincipal AuthMember me) {
++        return eventService.rouletteStatus(me == null ? null : me.id());
++    }
++
++    @PostMapping("/roulette/spin")
++    public SpinResult spin(@AuthenticationPrincipal AuthMember me) {
++        return eventService.spin(me.id());
++    }
++
++    /** 신규 가입 쿠폰 받기: 처음이면 201, 이미 받았으면 409 */
++    @PostMapping("/welcome-coupon")
++    @ResponseStatus(HttpStatus.CREATED)
++    public CouponResponse claimWelcome(@AuthenticationPrincipal AuthMember me) {
++        return eventService.claimWelcome(me.id());
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/event/domain/Event.java b/backend/src/main/java/com/yeoun/event/domain/Event.java
+new file mode 100644
+index 0000000..d1b0435
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/domain/Event.java
+@@ -0,0 +1,95 @@
++package com.yeoun.event.domain;
++
++import com.yeoun.global.common.BaseTimeEntity;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.Table;
++import java.time.LocalDate;
++import lombok.AccessLevel;
++import lombok.Getter;
++import lombok.NoArgsConstructor;
++import org.hibernate.annotations.JdbcTypeCode;
++import org.hibernate.type.SqlTypes;
++
++/** 이벤트 (테마 특가 · 룰렛 · 신규 가입 쿠폰). 기간이 비어 있으면 상시 진행입니다. */
++@Getter
++@Entity
++@Table(name = "event")
++@NoArgsConstructor(access = AccessLevel.PROTECTED)
++public class Event extends BaseTimeEntity {
++
++    @Id
++    @GeneratedValue(strategy = GenerationType.IDENTITY)
++    private Long id;
++
++    @Column(nullable = false, unique = true, length = 60)
++    private String slug;
++
++    @Enumerated(EnumType.STRING)
++    @JdbcTypeCode(SqlTypes.VARCHAR)
++    @Column(nullable = false, length = 20)
++    private EventKind kind;
++
++    @Column(nullable = false, length = 100)
++    private String title;
++
++    /** 목록에 보이는 한두 줄 소개 */
++    @Column(nullable = false, length = 300)
++    private String summary;
++
++    /** 상세 페이지 본문 */
++    @Column(length = 2000)
++    private String body;
++
++    @Column(name = "thumbnail_url", nullable = false, length = 300)
++    private String thumbnailUrl;
++
++    @Column(name = "starts_on")
++    private LocalDate startsOn;
++
++    @Column(name = "ends_on")
++    private LocalDate endsOn;
++
++    /** 테마 특가 이벤트가 연결된 테마 주소 */
++    @Column(name = "theme_slug", length = 60)
++    private String themeSlug;
++
++    /** 테마 특가 이벤트의 안내 할인율(%) */
++    @Column(name = "discount_rate")
++    private Integer discountRate;
++
++    @Column(name = "sort_order", nullable = false)
++    private int sortOrder;
++
++    @Column(nullable = false)
++    private boolean published;
++
++    public Event(String slug, EventKind kind, String title, String summary, String body, String thumbnailUrl,
++                 LocalDate startsOn, LocalDate endsOn, String themeSlug, Integer discountRate, int sortOrder) {
++        this.slug = slug;
++        this.kind = kind;
++        this.title = title;
++        this.summary = summary;
++        this.body = body;
++        this.thumbnailUrl = thumbnailUrl;
++        this.startsOn = startsOn;
++        this.endsOn = endsOn;
++        this.themeSlug = themeSlug;
++        this.discountRate = discountRate;
++        this.sortOrder = sortOrder;
++        this.published = true;
++    }
++
++    public boolean isActiveOn(LocalDate today) {
++        return (startsOn == null || !today.isBefore(startsOn)) && (endsOn == null || !today.isAfter(endsOn));
++    }
++
++    public boolean isEndedOn(LocalDate today) {
++        return endsOn != null && today.isAfter(endsOn);
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/event/domain/EventKind.java b/backend/src/main/java/com/yeoun/event/domain/EventKind.java
+new file mode 100644
+index 0000000..1272ca1
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/domain/EventKind.java
+@@ -0,0 +1,8 @@
++package com.yeoun.event.domain;
++
++/** 이벤트 종류: 테마 향 특가 · 룰렛 · 신규 가입 쿠폰 */
++public enum EventKind {
++    THEME_SALE,
++    ROULETTE,
++    WELCOME_COUPON
++}
+diff --git a/backend/src/main/java/com/yeoun/event/domain/RoulettePrize.java b/backend/src/main/java/com/yeoun/event/domain/RoulettePrize.java
+new file mode 100644
+index 0000000..373970b
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/domain/RoulettePrize.java
+@@ -0,0 +1,43 @@
++package com.yeoun.event.domain;
++
++import lombok.Getter;
++import lombok.RequiredArgsConstructor;
++
++/**
++ * 룰렛 경품과 당첨 가중치. 할인율이 클수록 당첨 확률이 낮습니다.
++ * 꽝 55% · 10% 할인 30% · 20% 할인 12% · 50% 할인 3%
++ */
++@Getter
++@RequiredArgsConstructor
++public enum RoulettePrize {
++    MISS("꽝", 0, 0, 55),
++    OFF_10("10% 할인", 10, 10_000, 30),
++    OFF_20("20% 할인", 20, 20_000, 12),
++    OFF_50("50% 할인", 50, 30_000, 3);
++
++    private final String label;
++    private final int rate;
++    /** 정률 쿠폰의 최대 할인 금액 */
++    private final int maxDiscount;
++    private final int weight;
++
++    public static int totalWeight() {
++        int total = 0;
++        for (RoulettePrize prize : values()) {
++            total += prize.weight;
++        }
++        return total;
++    }
++
++    /** 0 이상 totalWeight() 미만의 값을 받아 해당 구간의 경품을 돌려줍니다. */
++    public static RoulettePrize pick(int roll) {
++        int cumulative = 0;
++        for (RoulettePrize prize : values()) {
++            cumulative += prize.weight;
++            if (roll < cumulative) {
++                return prize;
++            }
++        }
++        return MISS;
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/event/domain/RouletteSpin.java b/backend/src/main/java/com/yeoun/event/domain/RouletteSpin.java
+new file mode 100644
+index 0000000..87a7313
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/domain/RouletteSpin.java
+@@ -0,0 +1,59 @@
++package com.yeoun.event.domain;
++
++import com.yeoun.coupon.domain.Coupon;
++import com.yeoun.global.common.BaseTimeEntity;
++import com.yeoun.member.domain.Member;
++import jakarta.persistence.Column;
++import jakarta.persistence.Entity;
++import jakarta.persistence.EnumType;
++import jakarta.persistence.Enumerated;
++import jakarta.persistence.FetchType;
++import jakarta.persistence.GeneratedValue;
++import jakarta.persistence.GenerationType;
++import jakarta.persistence.Id;
++import jakarta.persistence.JoinColumn;
++import jakarta.persistence.ManyToOne;
++import jakarta.persistence.Table;
++import jakarta.persistence.UniqueConstraint;
++import java.time.LocalDate;
++import lombok.AccessLevel;
++import lombok.Getter;
++import lombok.NoArgsConstructor;
++import org.hibernate.annotations.JdbcTypeCode;
++import org.hibernate.type.SqlTypes;
++
++/** 룰렛 기록. 회원 + 날짜에 유니크 제약을 걸어 동시에 눌러도 하루 한 번만 저장됩니다. */
++@Getter
++@Entity
++@Table(name = "roulette_spin", uniqueConstraints = @UniqueConstraint(name = "uk_roulette_member_day",
++        columnNames = {"member_id", "spun_on"}))
++@NoArgsConstructor(access = AccessLevel.PROTECTED)
++public class RouletteSpin extends BaseTimeEntity {
++
++    @Id
++    @GeneratedValue(strategy = GenerationType.IDENTITY)
++    private Long id;
++
++    @ManyToOne(fetch = FetchType.LAZY, optional = false)
++    @JoinColumn(name = "member_id", nullable = false)
++    private Member member;
++
++    @Column(name = "spun_on", nullable = false)
++    private LocalDate spunOn;
++
++    @Enumerated(EnumType.STRING)
++    @JdbcTypeCode(SqlTypes.VARCHAR)
++    @Column(nullable = false, length = 20)
++    private RoulettePrize prize;
++
++    @ManyToOne(fetch = FetchType.LAZY)
++    @JoinColumn(name = "coupon_id")
++    private Coupon coupon;
++
++    public RouletteSpin(Member member, LocalDate spunOn, RoulettePrize prize, Coupon coupon) {
++        this.member = member;
++        this.spunOn = spunOn;
++        this.prize = prize;
++        this.coupon = coupon;
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/event/dto/EventDtos.java b/backend/src/main/java/com/yeoun/event/dto/EventDtos.java
+new file mode 100644
+index 0000000..abb8cdc
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/dto/EventDtos.java
+@@ -0,0 +1,53 @@
++package com.yeoun.event.dto;
++
++import com.yeoun.coupon.dto.CouponResponse;
++import com.yeoun.event.domain.Event;
++import com.yeoun.event.domain.RoulettePrize;
++import java.time.LocalDate;
++import java.time.LocalDateTime;
++import java.util.Arrays;
++import java.util.List;
++
++public final class EventDtos {
++
++    private EventDtos() {
++    }
++
++    /** status: ONGOING(진행 중) · UPCOMING(예정) · ENDED(종료) */
++    public record EventSummary(Long id, String slug, String kind, String title, String summary, String thumbnailUrl,
++                               LocalDate startsOn, LocalDate endsOn, String status) {
++
++        public static EventSummary of(Event e, LocalDate today) {
++            String status = e.isActiveOn(today) ? "ONGOING" : e.isEndedOn(today) ? "ENDED" : "UPCOMING";
++            return new EventSummary(e.getId(), e.getSlug(), e.getKind().name(), e.getTitle(), e.getSummary(),
++                    e.getThumbnailUrl(), e.getStartsOn(), e.getEndsOn(), status);
++        }
++    }
++
++    public record EventDetail(EventSummary summary, String body, String themeSlug, Integer discountRate) {
++
++        public static EventDetail of(Event e, LocalDate today) {
++            return new EventDetail(EventSummary.of(e, today), e.getBody(), e.getThemeSlug(), e.getDiscountRate());
++        }
++    }
++
++    public record PrizeInfo(String code, String label, int rate, int maxDiscount, double probability) {
++
++        public static List<PrizeInfo> all() {
++            double total = RoulettePrize.totalWeight();
++            return Arrays.stream(RoulettePrize.values())
++                    .map(p -> new PrizeInfo(p.name(), p.getLabel(), p.getRate(), p.getMaxDiscount(),
++                            Math.round(p.getWeight() / total * 1000) / 10.0))
++                    .toList();
++        }
++    }
++
++    /** 오늘 룰렛을 돌렸는지와 결과, 다음 참여 가능 시각 */
++    public record RouletteStatus(boolean spunToday, String todayPrize, String todayPrizeLabel,
++                                 LocalDateTime nextAvailableAt, boolean eventActive, List<PrizeInfo> prizes) {
++    }
++
++    public record SpinResult(String prize, String label, int rate, CouponResponse coupon, String message,
++                             LocalDateTime nextAvailableAt) {
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/event/repository/EventRepository.java b/backend/src/main/java/com/yeoun/event/repository/EventRepository.java
+new file mode 100644
+index 0000000..b42571a
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/repository/EventRepository.java
+@@ -0,0 +1,18 @@
++package com.yeoun.event.repository;
++
++import com.yeoun.event.domain.Event;
++import com.yeoun.event.domain.EventKind;
++import java.util.List;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface EventRepository extends JpaRepository<Event, Long> {
++
++    List<Event> findAllByPublishedTrueOrderBySortOrderAscIdAsc();
++
++    List<Event> findAllByKindAndPublishedTrue(EventKind kind);
++
++    Optional<Event> findBySlugAndPublishedTrue(String slug);
++
++    Optional<Event> findFirstByKindAndPublishedTrueOrderByIdDesc(EventKind kind);
++}
+diff --git a/backend/src/main/java/com/yeoun/event/repository/RouletteSpinRepository.java b/backend/src/main/java/com/yeoun/event/repository/RouletteSpinRepository.java
+new file mode 100644
+index 0000000..91c2e53
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/repository/RouletteSpinRepository.java
+@@ -0,0 +1,13 @@
++package com.yeoun.event.repository;
++
++import com.yeoun.event.domain.RouletteSpin;
++import java.time.LocalDate;
++import java.util.Optional;
++import org.springframework.data.jpa.repository.EntityGraph;
++import org.springframework.data.jpa.repository.JpaRepository;
++
++public interface RouletteSpinRepository extends JpaRepository<RouletteSpin, Long> {
++
++    @EntityGraph(attributePaths = "coupon")
++    Optional<RouletteSpin> findByMemberIdAndSpunOn(Long memberId, LocalDate spunOn);
++}
+diff --git a/backend/src/main/java/com/yeoun/event/service/EventService.java b/backend/src/main/java/com/yeoun/event/service/EventService.java
+new file mode 100644
+index 0000000..a6d0418
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/service/EventService.java
+@@ -0,0 +1,131 @@
++package com.yeoun.event.service;
++
++import com.yeoun.coupon.domain.Coupon;
++import com.yeoun.coupon.dto.CouponResponse;
++import com.yeoun.coupon.service.CouponService;
++import com.yeoun.event.domain.Event;
++import com.yeoun.event.domain.EventKind;
++import com.yeoun.event.domain.RoulettePrize;
++import com.yeoun.event.domain.RouletteSpin;
++import com.yeoun.event.dto.EventDtos.EventDetail;
++import com.yeoun.event.dto.EventDtos.EventSummary;
++import com.yeoun.event.dto.EventDtos.PrizeInfo;
++import com.yeoun.event.dto.EventDtos.RouletteStatus;
++import com.yeoun.event.dto.EventDtos.SpinResult;
++import com.yeoun.event.repository.EventRepository;
++import com.yeoun.event.repository.RouletteSpinRepository;
++import com.yeoun.global.exception.ApiException;
++import com.yeoun.member.domain.Member;
++import com.yeoun.member.repository.MemberRepository;
++import java.security.SecureRandom;
++import java.time.LocalDate;
++import java.time.LocalDateTime;
++import java.time.ZoneId;
++import java.util.Comparator;
++import java.util.List;
++import java.util.Optional;
++import lombok.RequiredArgsConstructor;
++import org.springframework.dao.DataIntegrityViolationException;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++@Service
++@RequiredArgsConstructor
++@Transactional(readOnly = true)
++public class EventService {
++
++    /** 하루 1회 기준은 한국 시간 자정 */
++    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
++    private static final int ROULETTE_MIN_ORDER = 30_000;
++    private static final int ROULETTE_COUPON_DAYS = 7;
++
++    private final EventRepository eventRepository;
++    private final RouletteSpinRepository spinRepository;
++    private final MemberRepository memberRepository;
++    private final CouponService couponService;
++    private final SecureRandom random = new SecureRandom();
++
++    /** 진행 중 → 예정 → 종료 순, 같은 상태끼리는 정렬 순서대로 */
++    public List<EventSummary> list() {
++        LocalDate today = today();
++        return eventRepository.findAllByPublishedTrueOrderBySortOrderAscIdAsc().stream()
++                .map(e -> EventSummary.of(e, today))
++                .sorted(Comparator.comparingInt(s -> switch (s.status()) {
++                    case "ONGOING" -> 0;
++                    case "UPCOMING" -> 1;
++                    default -> 2;
++                }))
++                .toList();
++    }
++
++    public EventDetail detail(String slug) {
++        Event event = eventRepository.findBySlugAndPublishedTrue(slug)
++                .orElseThrow(() -> ApiException.notFound("이벤트를 찾을 수 없습니다."));
++        return EventDetail.of(event, today());
++    }
++
++    public RouletteStatus rouletteStatus(Long memberId) {
++        LocalDate today = today();
++        Optional<RouletteSpin> spin = memberId == null ? Optional.empty()
++                : spinRepository.findByMemberIdAndSpunOn(memberId, today);
++        return new RouletteStatus(spin.isPresent(), spin.map(s -> s.getPrize().name()).orElse(null),
++                spin.map(s -> s.getPrize().getLabel()).orElse(null), nextAvailableAt(today),
++                rouletteEvent().map(e -> e.isActiveOn(today)).orElse(false), PrizeInfo.all());
++    }
++
++    /**
++     * 룰렛 돌리기. 결과는 서버에서 가중치 추첨으로 정하고(화면은 그 결과에 맞춰 멈추기만 함),
++     * 당첨되면 정률 할인 쿠폰을 바로 발급합니다. 한국 시간 기준 하루 한 번.
++     */
++    @Transactional
++    public SpinResult spin(Long memberId) {
++        LocalDate today = today();
++        if (rouletteEvent().filter(e -> e.isActiveOn(today)).isEmpty()) {
++            throw ApiException.badRequest("지금은 룰렛 이벤트 기간이 아니에요.");
++        }
++        if (spinRepository.findByMemberIdAndSpunOn(memberId, today).isPresent()) {
++            throw ApiException.conflict("오늘은 이미 룰렛을 돌렸어요. 내일 다시 도전해 주세요.");
++        }
++        Member member = memberRepository.getReferenceById(memberId);
++        RoulettePrize prize = RoulettePrize.pick(random.nextInt(RoulettePrize.totalWeight()));
++
++        Coupon coupon = null;
++        if (prize != RoulettePrize.MISS) {
++            coupon = couponService.save(Coupon.percent(member, Coupon.ROULETTE,
++                    "룰렛 %d%% 할인 쿠폰".formatted(prize.getRate()), prize.getRate(), prize.getMaxDiscount(),
++                    ROULETTE_MIN_ORDER, LocalDateTime.now().plusDays(ROULETTE_COUPON_DAYS)));
++        }
++        try {
++            spinRepository.saveAndFlush(new RouletteSpin(member, today, prize, coupon));
++        } catch (DataIntegrityViolationException e) {
++            // 거의 동시에 두 번 누른 경우: 유니크 제약으로 한 번만 인정
++            throw ApiException.conflict("오늘은 이미 룰렛을 돌렸어요. 내일 다시 도전해 주세요.");
++        }
++        String message = prize == RoulettePrize.MISS
++                ? "아쉽게도 꽝이에요. 내일 다시 도전해 주세요!"
++                : "%s 쿠폰이 발급되었어요! %,d원 이상 주문 시 최대 %,d원까지 할인돼요. (%d일 동안 사용 가능)".formatted(
++                        prize.getLabel(), ROULETTE_MIN_ORDER, prize.getMaxDiscount(), ROULETTE_COUPON_DAYS);
++        return new SpinResult(prize.name(), prize.getLabel(), prize.getRate(),
++                coupon == null ? null : CouponResponse.from(coupon), message, nextAvailableAt(today));
++    }
++
++    /** 신규 가입 이벤트: 가입한 회원이면 누구나 한 번 받을 수 있습니다. */
++    @Transactional
++    public CouponResponse claimWelcome(Long memberId) {
++        Member member = memberRepository.findById(memberId)
++                .orElseThrow(() -> ApiException.unauthorized("회원 정보를 찾을 수 없습니다."));
++        return couponService.claimWelcome(member);
++    }
++
++    private Optional<Event> rouletteEvent() {
++        return eventRepository.findFirstByKindAndPublishedTrueOrderByIdDesc(EventKind.ROULETTE);
++    }
++
++    private static LocalDate today() {
++        return LocalDate.now(SEOUL);
++    }
++
++    private static LocalDateTime nextAvailableAt(LocalDate today) {
++        return today.plusDays(1).atStartOfDay();
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/event/service/SalePricing.java b/backend/src/main/java/com/yeoun/event/service/SalePricing.java
+new file mode 100644
+index 0000000..6946816
+--- /dev/null
++++ b/backend/src/main/java/com/yeoun/event/service/SalePricing.java
+@@ -0,0 +1,71 @@
++package com.yeoun.event.service;
++
++import com.yeoun.event.domain.Event;
++import com.yeoun.event.domain.EventKind;
++import com.yeoun.event.repository.EventRepository;
++import com.yeoun.product.domain.Product;
++import com.yeoun.product.dto.ProductDtos.ProductSummary;
++import com.yeoun.theme.domain.Theme;
++import com.yeoun.theme.domain.ThemeProduct;
++import com.yeoun.theme.repository.ThemeRepository;
++import java.time.LocalDate;
++import java.time.ZoneId;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.function.Function;
++import lombok.RequiredArgsConstructor;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++/**
++ * 테마 특가 가격 계산.
++ * 오늘(한국 시간) 진행 중인 THEME_SALE 이벤트가 가리키는 테마의 상품에 할인율을 적용합니다.
++ * 한 상품이 여러 특가에 걸리면 가장 큰 할인율 하나만 적용합니다.
++ */
++@Service
++@RequiredArgsConstructor
++@Transactional(readOnly = true)
++public class SalePricing {
++
++    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
++
++    private final EventRepository eventRepository;
++    private final ThemeRepository themeRepository;
++
++    /** 상품 id → 할인율(%) */
++    public Map<Long, Integer> activeRates() {
++        LocalDate today = LocalDate.now(SEOUL);
++        Map<Long, Integer> rates = new HashMap<>();
++        for (Event event : eventRepository.findAllByKindAndPublishedTrue(EventKind.THEME_SALE)) {
++            Integer rate = event.getDiscountRate();
++            if (rate == null || rate <= 0 || event.getThemeSlug() == null || !event.isActiveOn(today)) {
++                continue;
++            }
++            themeRepository.findBySlug(event.getThemeSlug())
++                    .filter(Theme::isPublished)
++                    .ifPresent(theme -> theme.getProducts().stream()
++                            .map(ThemeProduct::getProduct)
++                            .forEach(p -> rates.merge(p.getId(), rate, Math::max)));
++        }
++        return rates;
++    }
++
++    public int rateOf(Long productId) {
++        return activeRates().getOrDefault(productId, 0);
++    }
++
++    /** 목록 응답용: 할인율을 한 번만 계산해 여러 상품에 씁니다. */
++    public Function<Product, ProductSummary> summaries() {
++        Map<Long, Integer> rates = activeRates();
++        return p -> ProductSummary.from(p, rates.getOrDefault(p.getId(), 0));
++    }
++
++    /** 할인 금액은 10원 단위 절사 (쿠폰과 같은 규칙) */
++    public static int salePrice(int price, int rate) {
++        if (rate <= 0) {
++            return price;
++        }
++        int discount = (int) ((long) price * Math.min(rate, 100) / 100 / 10 * 10);
++        return price - discount;
++    }
++}
+diff --git a/backend/src/main/java/com/yeoun/global/config/SecurityConfig.java b/backend/src/main/java/com/yeoun/global/config/SecurityConfig.java
+index 940b833..0aa9a56 100644
+--- a/backend/src/main/java/com/yeoun/global/config/SecurityConfig.java
++++ b/backend/src/main/java/com/yeoun/global/config/SecurityConfig.java
+@@ -49,7 +49,7 @@ public class SecurityConfig {
+                         .requestMatchers(HttpMethod.GET, "/api/reviews/me").authenticated()
+                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/categories/**", "/api/posts/**",
+                                 "/api/reviews/**", "/api/preferences/questions", "/api/music/**",
+-                                "/api/commissions", "/api/themes/**", "/api/payments/config", "/uploads/**").permitAll()
++                                "/api/commissions", "/api/themes/**", "/api/events/**", "/api/payments/config", "/uploads/**").permitAll()
+                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                         .anyRequest().authenticated())
+                 .exceptionHandling(ex -> ex
+diff --git a/backend/src/main/java/com/yeoun/global/seed/DataSeeder.java b/backend/src/main/java/com/yeoun/global/seed/DataSeeder.java
+index 8c89bda..27550fb 100644
+--- a/backend/src/main/java/com/yeoun/global/seed/DataSeeder.java
++++ b/backend/src/main/java/com/yeoun/global/seed/DataSeeder.java
+@@ -37,6 +37,9 @@ import com.yeoun.product.domain.Track;
+ import com.yeoun.product.repository.ProductRepository;
+ import com.yeoun.review.domain.Review;
+ import com.yeoun.review.repository.ReviewRepository;
++import com.yeoun.event.domain.Event;
++import com.yeoun.event.domain.EventKind;
++import com.yeoun.event.repository.EventRepository;
+ import com.yeoun.theme.domain.Theme;
+ import com.yeoun.theme.repository.ThemeRepository;
+ import java.io.IOException;
+@@ -80,6 +83,7 @@ public class DataSeeder implements ApplicationRunner {
+     private final CommissionProposalRepository proposalRepository;
+     private final SettlementRepository settlementRepository;
+     private final ThemeRepository themeRepository;
++    private final EventRepository eventRepository;
+ 
+     @Override
+     @Transactional
+@@ -114,6 +118,9 @@ public class DataSeeder implements ApplicationRunner {
+         if (themeRepository.count() == 0) {
+             seedThemes();
+         }
++        if (eventRepository.count() == 0) {
++            seedEvents();
++        }
+     }
+ 
+     private JsonNode read(String path) throws IOException {
+@@ -381,6 +388,23 @@ public class DataSeeder implements ApplicationRunner {
+         }
+     }
+ 
++    /** 이벤트 예시 4개 (기간은 올해 날짜로) */
++    private void seedEvents() throws IOException {
++        int year = LocalDate.now().getYear();
++        for (JsonNode e : read("seed/events.json")) {
++            LocalDate start = monthDay(text(e, "start"), year);
++            LocalDate end = monthDay(text(e, "end"), year);
++            if (start != null && end != null && end.isBefore(start)) {
++                end = end.plusYears(1);
++            }
++            JsonNode rate = e.get("discountRate");
++            eventRepository.save(new Event(e.get("slug").asText(), EventKind.valueOf(e.get("kind").asText()),
++                    e.get("title").asText(), e.get("summary").asText(), text(e, "body"), e.get("thumbnail").asText(),
++                    start, end, text(e, "themeSlug"), rate == null || rate.isNull() ? null : rate.asInt(),
++                    e.get("sortOrder").asInt()));
++        }
++    }
++
+     private static LocalDate monthDay(String value, int year) {
+         return value == null ? null : LocalDate.parse(year + "-" + value);
+     }
+diff --git a/backend/src/main/java/com/yeoun/member/service/AuthService.java b/backend/src/main/java/com/yeoun/member/service/AuthService.java
+index 9ebd464..3cb9803 100644
+--- a/backend/src/main/java/com/yeoun/member/service/AuthService.java
++++ b/backend/src/main/java/com/yeoun/member/service/AuthService.java
+@@ -1,6 +1,5 @@
+ package com.yeoun.member.service;
+ 
+-import com.yeoun.coupon.service.CouponService;
+ import com.yeoun.global.exception.ApiException;
+ import com.yeoun.global.security.JwtTokenProvider;
+ import com.yeoun.member.domain.Member;
+@@ -29,7 +28,6 @@ public class AuthService {
+     private final MemberRepository memberRepository;
+     private final PerfumerApplicationRepository applicationRepository;
+     private final NotificationService notificationService;
+-    private final CouponService couponService;
+     private final PasswordEncoder passwordEncoder;
+     private final JwtTokenProvider tokenProvider;
+ 
+@@ -51,7 +49,6 @@ public class AuthService {
+                 .role(Role.USER)
+                 .marketingAgreed(request.marketingAgreed())
+                 .build());
+-        couponService.issueWelcome(member);
+ 
+         PerfumerApplication application = null;
+         if (request.perfumer()) {
+diff --git a/backend/src/main/java/com/yeoun/order/domain/OrderItem.java b/backend/src/main/java/com/yeoun/order/domain/OrderItem.java
+index b502cc1..3735b94 100644
+--- a/backend/src/main/java/com/yeoun/order/domain/OrderItem.java
++++ b/backend/src/main/java/com/yeoun/order/domain/OrderItem.java
+@@ -55,12 +55,17 @@ public class OrderItem {
+     private int lineAmount;
+ 
+     public OrderItem(Product product, int quantity) {
++        this(product, quantity, product.getPrice());
++    }
++
++    /** unitPrice: 주문 시점의 실제 판매가(테마 특가 반영) */
++    public OrderItem(Product product, int quantity, int unitPrice) {
+         this.product = product;
+         this.productName = product.getName();
+         this.typeLabel = product.getTypeLabel();
+         this.volume = product.getVolume();
+         this.imageUrl = product.getImageUrl();
+-        this.unitPrice = product.getPrice();
++        this.unitPrice = unitPrice;
+         this.quantity = quantity;
+         this.lineAmount = unitPrice * quantity;
+     }
+diff --git a/backend/src/main/java/com/yeoun/order/service/OrderService.java b/backend/src/main/java/com/yeoun/order/service/OrderService.java
+index c48df99..053baa3 100644
+--- a/backend/src/main/java/com/yeoun/order/service/OrderService.java
++++ b/backend/src/main/java/com/yeoun/order/service/OrderService.java
+@@ -3,6 +3,7 @@ package com.yeoun.order.service;
+ import com.yeoun.cart.service.CartService;
+ import com.yeoun.coupon.domain.Coupon;
+ import com.yeoun.coupon.repository.CouponRepository;
++import com.yeoun.event.service.SalePricing;
+ import com.yeoun.global.common.PageResponse;
+ import com.yeoun.global.exception.ApiException;
+ import com.yeoun.member.domain.Member;
+@@ -54,6 +55,7 @@ public class OrderService {
+     private final CartService cartService;
+     private final NotificationService notificationService;
+     private final PaymentService paymentService;
++    private final SalePricing salePricing;
+ 
+     /**
+      * 주문서 제출: 재고·쿠폰·적립금을 먼저 예약(차감)하고 '결제 대기' 주문과 결제 정보를 만듭니다.
+@@ -85,10 +87,13 @@ public class OrderService {
+                 .paymentProvider(request.paymentProvider())
+                 .fromCart(request.fromCart())
+                 .build();
++        // 테마 특가는 주문 시점 기준으로 서버에서 다시 계산해 단가로 저장합니다.
++        Map<Long, Integer> saleRates = salePricing.activeRates();
+         quantities.forEach((productId, quantity) -> {
+             Product product = products.get(productId);
+             product.decreaseStock(quantity);
+-            order.addItem(new OrderItem(product, quantity));
++            int unitPrice = SalePricing.salePrice(product.getPrice(), saleRates.getOrDefault(productId, 0));
++            order.addItem(new OrderItem(product, quantity, unitPrice));
+         });
+ 
+         Coupon coupon = null;
+diff --git a/backend/src/main/java/com/yeoun/preference/service/PreferenceService.java b/backend/src/main/java/com/yeoun/preference/service/PreferenceService.java
+index a397b7f..9adbcf2 100644
+--- a/backend/src/main/java/com/yeoun/preference/service/PreferenceService.java
++++ b/backend/src/main/java/com/yeoun/preference/service/PreferenceService.java
+@@ -14,7 +14,6 @@ import com.yeoun.preference.dto.PreferenceDtos.SubmitRequest;
+ import com.yeoun.preference.repository.MemberPreferenceRepository;
+ import com.yeoun.preference.repository.PreferenceQuestionRepository;
+ import com.yeoun.product.domain.Product;
+-import com.yeoun.product.dto.ProductDtos.ProductSummary;
+ import com.yeoun.product.repository.ProductRepository;
+ import java.util.Comparator;
+ import java.util.List;
+@@ -22,6 +21,7 @@ import java.util.Map;
+ import java.util.Optional;
+ import java.util.function.Function;
+ import java.util.stream.Collectors;
++import com.yeoun.event.service.SalePricing;
+ import lombok.RequiredArgsConstructor;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+@@ -38,6 +38,7 @@ public class PreferenceService {
+     private final MemberRepository memberRepository;
+     private final ProductRepository productRepository;
+     private final AiCurationClient aiCurationClient;
++    private final SalePricing salePricing;
+ 
+     public List<QuestionResponse> questions() {
+         return questionRepository.findAllByOrderByQuestionNoAsc().stream().map(QuestionResponse::from).toList();
+@@ -113,7 +114,7 @@ public class PreferenceService {
+ 
+         String summary = aiSummary.orElseGet(() -> ruleBasedSummary(answers, keywords, profile, ranked));
+         return Optional.of(new RecommendationResponse(headline, summary, keywords, aiSummary.isPresent(), answers,
+-                ranked.stream().map(ProductSummary::from).toList()));
++                ranked.stream().map(salePricing.summaries()).toList()));
+     }
+ 
+     private static String ruleBasedSummary(List<AnswerResponse> answers, List<String> keywords, ScentProfile profile,
+diff --git a/backend/src/main/java/com/yeoun/product/dto/ProductDtos.java b/backend/src/main/java/com/yeoun/product/dto/ProductDtos.java
+index 77c6593..598659e 100644
+--- a/backend/src/main/java/com/yeoun/product/dto/ProductDtos.java
++++ b/backend/src/main/java/com/yeoun/product/dto/ProductDtos.java
+@@ -1,5 +1,6 @@
+ package com.yeoun.product.dto;
+ 
++import com.yeoun.event.service.SalePricing;
+ import com.yeoun.product.domain.Category;
+ import com.yeoun.product.domain.Product;
+ import com.yeoun.product.domain.ScentNote;
+@@ -26,14 +27,17 @@ public final class ProductDtos {
+ 
+     public record ProductSummary(Long id, String incCd, String category, String categorySlug, String name,
+                                  String subtitle, String typeLabel, String volume, int price, boolean soldOut,
+-                                 boolean newArrival, String imageUrl, String thumbnailUrl) {
++                                 boolean newArrival, String imageUrl, String thumbnailUrl, int salePrice,
++                                 int saleRate) {
+ 
+-        public static ProductSummary from(Product p) {
++        /** price는 정가, salePrice는 테마 특가가 반영된 실제 판매가(특가가 없으면 정가와 같음) */
++        public static ProductSummary from(Product p, int saleRate) {
+             Category c = p.getCategory();
+             return new ProductSummary(p.getId(), p.getIncCd(), c.getLabel(), c.getSlug(), p.getName(),
+                     p.getSubtitle(), p.getTypeLabel(), p.getVolume(), p.getPrice(), p.isSoldOut(),
+                     p.isNewArrival(), p.getImageUrl(),
+-                    p.getThumbnailUrl() == null ? p.getImageUrl() : p.getThumbnailUrl());
++                    p.getThumbnailUrl() == null ? p.getImageUrl() : p.getThumbnailUrl(),
++                    SalePricing.salePrice(p.getPrice(), saleRate), saleRate);
+         }
+     }
+ 
+@@ -66,9 +70,13 @@ public final class ProductDtos {
+                                 String storyBody, String safetyNotice, String playlistTitle, int intensity,
+                                 int popularity, List<NoteDto> notes, List<String> ritualSteps,
+                                 List<String> poemLines, List<TrackDto> tracks, Set<String> tags,
+-                                double averageRating, long reviewCount) {
++                                double averageRating, long reviewCount, int salePrice, int saleRate) {
+ 
+         public static ProductDetail from(Product p, double averageRating, long reviewCount) {
++            return from(p, averageRating, reviewCount, 0);
++        }
++
++        public static ProductDetail from(Product p, double averageRating, long reviewCount, int saleRate) {
+             Category c = p.getCategory();
+             return new ProductDetail(p.getId(), p.getIncCd(), c.getLabel(), c.getSlug(), p.getName(),
+                     p.getSubtitle(), p.getEnglishLine(), p.getTypeLabel(), p.getVolume(), p.getPrice(),
+@@ -81,7 +89,7 @@ public final class ProductDtos {
+                     List.copyOf(p.getPoemLines()),
+                     p.getTracks().stream().map(TrackDto::from).toList(),
+                     Set.copyOf(p.getTags()),
+-                    averageRating, reviewCount);
++                    averageRating, reviewCount, SalePricing.salePrice(p.getPrice(), saleRate), saleRate);
+         }
+     }
+ 
+diff --git a/backend/src/main/java/com/yeoun/product/service/ProductService.java b/backend/src/main/java/com/yeoun/product/service/ProductService.java
+index c4cf455..e4e4e86 100644
+--- a/backend/src/main/java/com/yeoun/product/service/ProductService.java
++++ b/backend/src/main/java/com/yeoun/product/service/ProductService.java
+@@ -1,5 +1,6 @@
+ package com.yeoun.product.service;
+ 
++import com.yeoun.event.service.SalePricing;
+ import com.yeoun.global.common.PageResponse;
+ import com.yeoun.global.exception.ApiException;
+ import com.yeoun.product.domain.Category;
+@@ -25,6 +26,7 @@ public class ProductService {
+ 
+     private final ProductRepository productRepository;
+     private final ReviewRepository reviewRepository;
++    private final SalePricing salePricing;
+ 
+     public record SearchCondition(String category, String keyword, String feeling, String scene, Integer minPrice,
+                                   Integer maxPrice, String sort, int page, int size) {
+@@ -35,7 +37,7 @@ public class ProductService {
+         PageRequest pageable = PageRequest.of(Math.max(0, c.page()), Math.min(Math.max(1, c.size()), 60),
+                 toSort(c.sort()));
+         return PageResponse.of(productRepository.search(incCd, blankToNull(c.keyword()), blankToNull(c.feeling()),
+-                blankToNull(c.scene()), c.minPrice(), c.maxPrice(), pageable), ProductSummary::from);
++                blankToNull(c.scene()), c.minPrice(), c.maxPrice(), pageable), salePricing.summaries());
+     }
+ 
+     private static Sort toSort(String sort) {
+@@ -63,16 +65,18 @@ public class ProductService {
+         Product product = productRepository.findById(id)
+                 .filter(Product::isActive)
+                 .orElseThrow(() -> ApiException.notFound("상품을 찾을 수 없습니다."));
+-        return ProductDetail.from(product, reviewRepository.averageRating(id), reviewRepository.countByProductId(id));
++        return ProductDetail.from(product, reviewRepository.averageRating(id), reviewRepository.countByProductId(id),
++                salePricing.rateOf(id));
+     }
+ 
+     public List<ProductSummary> popular() {
+-        return productRepository.findTop4ByActiveTrueOrderByPopularityDesc().stream().map(ProductSummary::from).toList();
++        return productRepository.findTop4ByActiveTrueOrderByPopularityDesc().stream().map(salePricing.summaries())
++                .toList();
+     }
+ 
+     public List<ProductSummary> newArrivals() {
+         return productRepository.findTop4ByActiveTrueAndNewArrivalTrueOrderByIdAsc().stream()
+-                .map(ProductSummary::from).toList();
++                .map(salePricing.summaries()).toList();
+     }
+ 
+     // ---------- 관리자 CRUD ----------
+diff --git a/backend/src/main/java/com/yeoun/theme/service/ThemeService.java b/backend/src/main/java/com/yeoun/theme/service/ThemeService.java
+index 37b5d19..dd1cf05 100644
+--- a/backend/src/main/java/com/yeoun/theme/service/ThemeService.java
++++ b/backend/src/main/java/com/yeoun/theme/service/ThemeService.java
+@@ -1,8 +1,8 @@
+ package com.yeoun.theme.service;
+ 
++import com.yeoun.event.service.SalePricing;
+ import com.yeoun.global.exception.ApiException;
+ import com.yeoun.product.domain.Product;
+-import com.yeoun.product.dto.ProductDtos.ProductSummary;
+ import com.yeoun.product.repository.ProductRepository;
+ import com.yeoun.theme.domain.Theme;
+ import com.yeoun.theme.dto.ThemeDtos.ThemeDetail;
+@@ -32,6 +32,7 @@ public class ThemeService {
+ 
+     private final ThemeRepository themeRepository;
+     private final ProductRepository productRepository;
++    private final SalePricing salePricing;
+ 
+     /** 공개 테마: 지금 기간인 테마를 먼저, 그다음 지난·예정 테마 */
+     public List<ThemeSummary> published() {
+@@ -47,9 +48,10 @@ public class ThemeService {
+                 .filter(t -> admin || t.isPublished())
+                 .orElseThrow(() -> ApiException.notFound("테마를 찾을 수 없습니다."));
+         LocalDate today = LocalDate.now(SEOUL);
++        var summary = salePricing.summaries();
+         List<ThemeItem> items = theme.getProducts().stream()
+                 .filter(tp -> tp.getProduct().isActive())
+-                .map(tp -> new ThemeItem(ProductSummary.from(tp.getProduct()), tp.getNote()))
++                .map(tp -> new ThemeItem(summary.apply(tp.getProduct()), tp.getNote()))
+                 .toList();
+         List<ThemeSummary> others = published().stream()
+                 .filter(o -> !o.slug().equals(slug))
+diff --git a/backend/src/main/java/com/yeoun/wishlist/service/WishlistService.java b/backend/src/main/java/com/yeoun/wishlist/service/WishlistService.java
+index ae842c7..0ac99b9 100644
+--- a/backend/src/main/java/com/yeoun/wishlist/service/WishlistService.java
++++ b/backend/src/main/java/com/yeoun/wishlist/service/WishlistService.java
+@@ -8,6 +8,7 @@ import com.yeoun.product.repository.ProductRepository;
+ import com.yeoun.wishlist.domain.WishlistItem;
+ import com.yeoun.wishlist.repository.WishlistItemRepository;
+ import java.util.List;
++import com.yeoun.event.service.SalePricing;
+ import lombok.RequiredArgsConstructor;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+@@ -20,12 +21,13 @@ public class WishlistService {
+     private final WishlistItemRepository wishlistItemRepository;
+     private final MemberRepository memberRepository;
+     private final ProductRepository productRepository;
++    private final SalePricing salePricing;
+ 
+     public List<ProductSummary> findMine(Long memberId) {
+         return wishlistItemRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId).stream()
+                 .map(WishlistItem::getProduct)
+                 .filter(Product::isActive)
+-                .map(ProductSummary::from)
++                .map(salePricing.summaries())
+                 .toList();
+     }
+ 
+diff --git a/backend/src/main/resources/db/migration/common/V3__event_roulette_percent_coupon.sql b/backend/src/main/resources/db/migration/common/V3__event_roulette_percent_coupon.sql
+new file mode 100644
+index 0000000..0c0f837
+--- /dev/null
++++ b/backend/src/main/resources/db/migration/common/V3__event_roulette_percent_coupon.sql
+@@ -0,0 +1,38 @@
++-- 이벤트(테마 특가·룰렛·신규 가입 쿠폰), 룰렛 기록, 정률(%) 쿠폰
++
++alter table coupon add column discount_rate integer;
++alter table coupon add column max_discount_amount integer;
++
++create table event (
++    id            bigint        not null auto_increment,
++    slug          varchar(60)   not null,
++    kind          varchar(20)   not null,
++    title         varchar(100)  not null,
++    summary       varchar(300)  not null,
++    body          varchar(2000),
++    thumbnail_url varchar(300)  not null,
++    starts_on     date,
++    ends_on       date,
++    theme_slug    varchar(60),
++    discount_rate integer,
++    sort_order    integer       not null,
++    published     boolean       not null,
++    created_at    datetime(6)   not null,
++    updated_at    datetime(6)   not null,
++    primary key (id),
++    constraint uk_event_slug unique (slug)
++);
++
++create table roulette_spin (
++    id         bigint      not null auto_increment,
++    member_id  bigint      not null,
++    spun_on    date        not null,
++    prize      varchar(20) not null,
++    coupon_id  bigint,
++    created_at datetime(6) not null,
++    updated_at datetime(6) not null,
++    primary key (id),
++    constraint uk_roulette_member_day unique (member_id, spun_on),
++    constraint fk_roulette_spin_member foreign key (member_id) references member (id),
++    constraint fk_roulette_spin_coupon foreign key (coupon_id) references coupon (id)
++);
+diff --git a/backend/src/main/resources/seed/events.json b/backend/src/main/resources/seed/events.json
+new file mode 100644
+index 0000000..61dc1d7
+--- /dev/null
++++ b/backend/src/main/resources/seed/events.json
+@@ -0,0 +1,34 @@
++[
++  {
++    "slug": "halloween-sale", "kind": "THEME_SALE", "sortOrder": 1,
++    "title": "할로윈 특가 — 고요하게 번지는 밤의 향",
++    "summary": "할로윈 테마에 담은 우디·스모키 향을 15% 특가로 만나보세요. 불을 낮춘 방에 어울리는 네 가지 향을 골랐어요.",
++    "body": "요란한 파티 대신, 불빛을 낮춘 방에서 보내는 할로윈은 어떠세요?\n돌 위로 피어오르는 연기, 불을 끈 뒤에도 남는 나무 향, 작은 불빛과 달콤한 앰버까지.\n할로윈 테마의 향을 이벤트 기간 동안 15% 특가로 준비했어요.\n\n· 대상: 할로윈 테마에 담긴 향 전체\n· 혜택: 15% 할인\n· 배송: 5만 원 이상 무료 배송",
++    "thumbnail": "/images/hero/hero-2.jpg", "start": "10-01", "end": "11-02",
++    "themeSlug": "halloween-night", "discountRate": 15
++  },
++  {
++    "slug": "daily-roulette", "kind": "ROULETTE", "sortOrder": 2,
++    "title": "하루 한 번, 여운 룰렛",
++    "summary": "매일 한 번 룰렛을 돌리고 최대 50% 할인 쿠폰을 받아 가세요. 당첨 쿠폰은 바로 마이페이지에 들어가요.",
++    "body": "하루에 한 번, 오늘의 향운을 시험해 보세요.\n10% · 20% · 50% 할인 쿠폰이 숨어 있어요. 할인율이 클수록 당첨되기 어려워요.\n\n· 참여: 회원 1인 1일 1회 (매일 자정에 다시 참여 가능)\n· 쿠폰: 3만 원 이상 주문 시 사용, 발급일로부터 7일\n· 최대 할인: 10% 1만 원 · 20% 2만 원 · 50% 3만 원",
++    "thumbnail": "/images/studio/dawn-grain.jpg", "start": "10-15", "end": "12-31",
++    "themeSlug": null, "discountRate": null
++  },
++  {
++    "slug": "autumn-sale", "kind": "THEME_SALE", "sortOrder": 3,
++    "title": "가을 특가 — 따뜻한 향으로 깊어지는 계절",
++    "summary": "가을 테마의 찻잎·나무 향을 10% 특가로 준비했어요. 해가 짧아지는 오후를 천천히 채워 보세요.",
++    "body": "바스락거리는 낙엽, 따뜻한 차 한 잔, 포근한 나무 향.\n가을 테마에 담긴 향들을 이벤트 기간 동안 10% 특가로 만나보세요.\n\n· 대상: 가을 테마에 담긴 향 전체\n· 혜택: 10% 할인\n· 함께 하면 좋은 것: 하루 한 번 룰렛 쿠폰과 함께 쓰면 더 가볍게",
++    "thumbnail": "/images/hero/hero-3.jpg", "start": "09-15", "end": "11-30",
++    "themeSlug": "autumn-woody", "discountRate": 10
++  },
++  {
++    "slug": "welcome-coupon", "kind": "WELCOME_COUPON", "sortOrder": 4,
++    "title": "신규 가입 웰컴 쿠폰",
++    "summary": "여운의 회원이 되신 모든 분께 3,000원 웰컴 쿠폰을 드려요. 버튼 한 번으로 받을 수 있어요.",
++    "body": "첫 만남을 위한 작은 선물을 준비했어요.\n회원이라면 누구나 한 번, 3,000원 할인 쿠폰을 받을 수 있어요.\n\n· 대상: 여운 회원 누구나 (1인 1회)\n· 혜택: 3만 원 이상 주문 시 3,000원 할인\n· 사용 기간: 발급일로부터 30일",
++    "thumbnail": "/images/common/signup.jpg", "start": null, "end": null,
++    "themeSlug": null, "discountRate": null
++  }
++]
+diff --git a/backend/src/test/java/com/yeoun/ShopFlowIntegrationTest.java b/backend/src/test/java/com/yeoun/ShopFlowIntegrationTest.java
+index df7c885..0fdf097 100644
+--- a/backend/src/test/java/com/yeoun/ShopFlowIntegrationTest.java
++++ b/backend/src/test/java/com/yeoun/ShopFlowIntegrationTest.java
+@@ -11,6 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
+ 
+ import com.fasterxml.jackson.databind.JsonNode;
+ import com.fasterxml.jackson.databind.ObjectMapper;
++import com.yeoun.event.domain.Event;
++import com.yeoun.event.domain.EventKind;
++import com.yeoun.event.repository.EventRepository;
+ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+@@ -38,6 +41,9 @@ class ShopFlowIntegrationTest {
+     @Autowired
+     ObjectMapper objectMapper;
+ 
++    @Autowired
++    EventRepository eventRepository;
++
+     private JsonNode call(MockHttpServletRequestBuilder request, String token, Object body, int expectedStatus)
+             throws Exception {
+         if (token != null) {
+@@ -112,6 +118,10 @@ class ShopFlowIntegrationTest {
+     void 가입하면_환영_쿠폰이_발급되고_장바구니에서_주문하면_재고가_줄고_취소하면_돌아온다() throws Exception {
+         String token = signupNewMember();
+ 
++        // 신규 가입 이벤트: 가입만으로는 쿠폰이 없고, 이벤트에서 한 번만 받을 수 있다
++        assertThat(call(get("/api/coupons/me"), token, null, 200)).isEmpty();
++        call(post("/api/events/welcome-coupon"), token, null, 201);
++        call(post("/api/events/welcome-coupon"), token, null, 409);
+         JsonNode coupons = call(get("/api/coupons/me"), token, null, 200);
+         assertThat(coupons).hasSize(1);
+         assertThat(coupons.get(0).get("discountAmount").asInt()).isEqualTo(3000);
+@@ -397,6 +407,79 @@ class ShopFlowIntegrationTest {
+                 .andExpect(status().isBadRequest());
+     }
+ 
++    @Test
++    void 테마_특가_상품은_목록_장바구니_주문에_할인가로_계산된다() throws Exception {
++        // 날짜에 상관없이 돌도록 기간 없는 특가 이벤트 + 전용 테마(허브의 정원 34,000원)를 만든다
++        String admin = login("admin@yeoun.example", "admin1234!");
++        Map<String, Object> theme = new HashMap<>();
++        theme.put("slug", "test-herb-sale");
++        theme.put("title", "허브 특가 테스트");
++        theme.put("heroImageUrl", "/images/hero/hero-1.jpg");
++        theme.put("sortOrder", 99);
++        theme.put("published", true);
++        theme.put("items", List.of(Map.of("productId", 36, "note", "특가 대상")));
++        call(post("/api/admin/themes"), admin, theme, 201);
++        eventRepository.save(new Event("test-herb-sale", EventKind.THEME_SALE, "허브 특가", "요약", "본문",
++                "/images/hero/hero-1.jpg", null, null, "test-herb-sale", 30, 99));
++
++        JsonNode detail = call(get("/api/products/36"), null, null, 200);
++        assertThat(detail.get("price").asInt()).isEqualTo(34_000);
++        assertThat(detail.get("saleRate").asInt()).isEqualTo(30);
++        assertThat(detail.get("salePrice").asInt()).isEqualTo(23_800);
++        // 특가가 아닌 상품은 판매가 = 정가
++        JsonNode plain = call(get("/api/products/35"), null, null, 200);
++        assertThat(plain.get("salePrice").asInt()).isEqualTo(plain.get("price").asInt());
++        assertThat(plain.get("saleRate").asInt()).isZero();
++
++        String token = signupNewMember();
++        JsonNode cart = call(post("/api/cart/items"), token, Map.of("productId", 36, "quantity", 2), 200);
++        JsonNode line = cart.get("items").get(0);
++        assertThat(line.get("listPrice").asInt()).isEqualTo(34_000);
++        assertThat(line.get("unitPrice").asInt()).isEqualTo(23_800);
++        assertThat(cart.get("itemsAmount").asInt()).isEqualTo(47_600);
++        assertThat(cart.get("shippingFee").asInt()).isEqualTo(3_000);
++
++        JsonNode checkout = call(post("/api/orders"), token,
++                orderBody(List.of(Map.of("productId", 36, "quantity", 2)), true, null), 201);
++        assertThat(checkout.get("payment").get("amount").asInt()).isEqualTo(50_600);
++        JsonNode order = call(get("/api/orders/" + checkout.get("order").get("id").asLong()), token, null, 200);
++        assertThat(order.get("itemsAmount").asInt()).isEqualTo(47_600);
++        assertThat(order.get("items").get(0).get("unitPrice").asInt()).isEqualTo(23_800);
++    }
++
++    @Test
++    void 이벤트_목록과_상세를_조회한다() throws Exception {
++        JsonNode events = call(get("/api/events"), null, null, 200);
++        assertThat(events.size()).isGreaterThanOrEqualTo(4);
++        JsonNode halloween = call(get("/api/events/halloween-sale"), null, null, 200);
++        assertThat(halloween.get("themeSlug").asText()).isEqualTo("halloween-night");
++        assertThat(halloween.get("summary").get("kind").asText()).isEqualTo("THEME_SALE");
++        call(get("/api/events/no-such-event"), null, null, 404);
++    }
++
++    @Test
++    void 룰렛은_하루에_한_번만_돌릴_수_있다() throws Exception {
++        String token = signupNewMember();
++        call(post("/api/events/roulette/spin"), null, null, 401);
++        JsonNode status = call(get("/api/events/roulette/status"), token, null, 200);
++        assertThat(status.get("spunToday").asBoolean()).isFalse();
++        assertThat(status.get("prizes")).hasSize(4);
++
++        if (!status.get("eventActive").asBoolean()) {
++            // 테스트가 이벤트 기간 밖에서 돌 때
++            call(post("/api/events/roulette/spin"), token, null, 400);
++            return;
++        }
++        JsonNode result = call(post("/api/events/roulette/spin"), token, null, 200);
++        assertThat(result.get("prize").asText()).isIn("MISS", "OFF_10", "OFF_20", "OFF_50");
++        if (!"MISS".equals(result.get("prize").asText())) {
++            assertThat(result.get("coupon").get("discountRate").asInt()).isEqualTo(result.get("rate").asInt());
++            assertThat(call(get("/api/coupons/me"), token, null, 200)).hasSize(1);
++        }
++        call(post("/api/events/roulette/spin"), token, null, 409);
++        assertThat(call(get("/api/events/roulette/status"), token, null, 200).get("spunToday").asBoolean()).isTrue();
++    }
++
+     @Test
+     void 찜과_회원정보_수정() throws Exception {
+         String token = signupNewMember();
+diff --git a/backend/src/test/java/com/yeoun/coupon/CouponDiscountTest.java b/backend/src/test/java/com/yeoun/coupon/CouponDiscountTest.java
+new file mode 100644
+index 0000000..5033523
+--- /dev/null
++++ b/backend/src/test/java/com/yeoun/coupon/CouponDiscountTest.java
+@@ -0,0 +1,31 @@
++package com.yeoun.coupon;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import com.yeoun.coupon.domain.Coupon;
++import java.time.LocalDateTime;
++import org.junit.jupiter.api.Test;
++
++class CouponDiscountTest {
++
++    private final LocalDateTime expires = LocalDateTime.now().plusDays(7);
++
++    @Test
++    void 정액_쿠폰은_주문_금액을_넘지_않는다() {
++        Coupon coupon = new Coupon(null, "WELCOME", "환영", 3_000, 30_000, expires);
++        assertThat(coupon.discountFor(45_000)).isEqualTo(3_000);
++        assertThat(coupon.discountFor(2_000)).isEqualTo(2_000);
++    }
++
++    @Test
++    void 정률_쿠폰은_10원_단위로_내리고_최대_할인_금액까지만_깎는다() {
++        Coupon tenPercent = Coupon.percent(null, "ROULETTE", "10%", 10, 10_000, 30_000, expires);
++        assertThat(tenPercent.discountFor(38_000)).isEqualTo(3_800);
++        assertThat(tenPercent.discountFor(38_250)).isEqualTo(3_820);
++        assertThat(tenPercent.discountFor(200_000)).isEqualTo(10_000);
++
++        Coupon half = Coupon.percent(null, "ROULETTE", "50%", 50, 30_000, 30_000, expires);
++        assertThat(half.discountFor(44_000)).isEqualTo(22_000);
++        assertThat(half.discountFor(100_000)).isEqualTo(30_000);
++    }
++}
+diff --git a/backend/src/test/java/com/yeoun/event/RoulettePrizeTest.java b/backend/src/test/java/com/yeoun/event/RoulettePrizeTest.java
+new file mode 100644
+index 0000000..1331306
+--- /dev/null
++++ b/backend/src/test/java/com/yeoun/event/RoulettePrizeTest.java
+@@ -0,0 +1,24 @@
++package com.yeoun.event;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import com.yeoun.event.domain.RoulettePrize;
++import java.util.EnumMap;
++import java.util.Map;
++import org.junit.jupiter.api.Test;
++
++class RoulettePrizeTest {
++
++    @Test
++    void 할인율이_클수록_당첨_구간이_좁다() {
++        Map<RoulettePrize, Integer> counts = new EnumMap<>(RoulettePrize.class);
++        for (int roll = 0; roll < RoulettePrize.totalWeight(); roll++) {
++            counts.merge(RoulettePrize.pick(roll), 1, Integer::sum);
++        }
++        assertThat(RoulettePrize.totalWeight()).isEqualTo(100);
++        assertThat(counts.get(RoulettePrize.MISS)).isEqualTo(55);
++        assertThat(counts.get(RoulettePrize.OFF_10)).isGreaterThan(counts.get(RoulettePrize.OFF_20));
++        assertThat(counts.get(RoulettePrize.OFF_20)).isGreaterThan(counts.get(RoulettePrize.OFF_50));
++        assertThat(counts.get(RoulettePrize.OFF_50)).isEqualTo(3);
++    }
++}
+diff --git a/backend/src/test/java/com/yeoun/event/SalePricingTest.java b/backend/src/test/java/com/yeoun/event/SalePricingTest.java
+new file mode 100644
+index 0000000..f2be23f
+--- /dev/null
++++ b/backend/src/test/java/com/yeoun/event/SalePricingTest.java
+@@ -0,0 +1,23 @@
++package com.yeoun.event;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import com.yeoun.event.service.SalePricing;
++import org.junit.jupiter.api.Test;
++
++class SalePricingTest {
++
++    @Test
++    void 할인_금액은_10원_단위로_절사한다() {
++        assertThat(SalePricing.salePrice(38_000, 15)).isEqualTo(32_300);
++        assertThat(SalePricing.salePrice(22_000, 15)).isEqualTo(18_700);
++        assertThat(SalePricing.salePrice(34_500, 15)).isEqualTo(29_330); // 5,175 → 5,170
++    }
++
++    @Test
++    void 특가가_없으면_정가_그대로() {
++        assertThat(SalePricing.salePrice(78_000, 0)).isEqualTo(78_000);
++        assertThat(SalePricing.salePrice(78_000, -5)).isEqualTo(78_000);
++        assertThat(SalePricing.salePrice(78_000, 150)).isZero();
++    }
++}
+diff --git a/docs/architecture.md b/docs/architecture.md
+index 74b6e72..49169cb 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -48,6 +48,8 @@ erDiagram
+   member ||--o{ commission_proposal : "조향사"
+   member ||--o{ payment : "결제"
+   commission ||--o| settlement : "정산"
++  member ||--o{ roulette_spin : "룰렛 (1일 1회)"
++  coupon |o--o| roulette_spin : "당첨 쿠폰"
+   member ||--o{ settlement : "조향사"
+   theme ||--o{ theme_product : "묶은 향"
+   product ||--o{ theme_product : ""
+@@ -138,12 +140,30 @@ erDiagram
+   coupon {
+     bigint id PK
+     bigint member_id FK
+-    varchar code "WELCOME ..."
++    varchar code "WELCOME, ROULETTE ..."
+     int discount_amount
++    int discount_rate "정률 쿠폰(%)"
++    int max_discount_amount
+     int min_order_amount
+     datetime expires_at
+     datetime used_at
+   }
++  event {
++    bigint id PK
++    varchar slug UK
++    varchar kind "THEME_SALE, ROULETTE, WELCOME_COUPON"
++    date starts_on
++    date ends_on
++    varchar theme_slug
++    int discount_rate
++  }
++  roulette_spin {
++    bigint id PK
++    bigint member_id FK
++    date spun_on "member+spun_on UK"
++    varchar prize
++    bigint coupon_id FK
++  }
+   orders {
+     bigint id PK
+     varchar order_number UK "YN-yyyyMMdd-####"
+@@ -272,6 +292,7 @@ sequenceDiagram
+ 
+ - `PaymentService`는 주문·커미션을 직접 알지 않고 `PaymentEvents.Approved/Failed` 이벤트를 발행합니다. 주문·커미션 서비스가 같은 트랜잭션에서 받아 상태를 바꿉니다.
+ - 키가 없으면 `MockPaymentGateway`가 같은 경로로 즉시 승인하므로, 테스트와 로컬 개발이 PG 없이도 전체 흐름을 거칩니다.
++- 주문 단가는 주문 시점의 판매가(테마 특가 반영)로 서버에서 다시 계산해 저장 — 화면에 보인 가격을 그대로 믿지 않음
+ - 취소 시 PG 환불 → 재고·쿠폰·적립금 복구, 배송 완료 시 1% 적립 + 누적 금액으로 등급 상향
+ 
+ ## 커미션 정산 · 환불
+@@ -334,6 +355,10 @@ sequenceDiagram
+ | GET/POST/PATCH/DELETE | /api/cart, /api/cart/items… | 회원 | 장바구니 |
+ | GET/PUT/DELETE | /api/wishlist… | 회원 | 찜한 향 |
+ | GET | /api/coupons/me | 회원 | 내 쿠폰 |
++| GET | /api/events, /api/events/{slug} | - | 이벤트 목록·상세 |
++| GET | /api/events/roulette/status | - | 오늘 참여 여부·경품 확률 |
++| POST | /api/events/roulette/spin | 회원 | 룰렛 돌리기 (서버 추첨, 1일 1회, 중복 409) |
++| POST | /api/events/welcome-coupon | 회원 | 웰컴 쿠폰 받기 (201 / 이미 받음 409) |
+ | POST/GET | /api/orders | 회원 | 주문서 제출(결제 대기 + 결제 정보) / 내 주문 목록 |
+ | GET/POST | /api/orders/{id}, /cancel | 회원 | 주문 상세 / 취소 |
+ | GET | /api/members/me/summary | 회원 | 마이페이지 요약 |
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 1fa7a1d..8a4bd77 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -10,6 +10,7 @@
+       "dependencies": {
+         "lucide-react": "0.460.0",
+         "react": "18.3.1",
++        "react-custom-roulette": "1.4.1",
+         "react-dom": "18.3.1",
+         "react-router-dom": "6.28.0"
+       },
+@@ -1721,6 +1722,16 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/react-custom-roulette": {
++      "version": "1.4.1",
++      "resolved": "https://registry.npmjs.org/react-custom-roulette/-/react-custom-roulette-1.4.1.tgz",
++      "integrity": "sha512-v5Mrww/lbysSNcAF0PHU7KzdY+ljtTysu6A5Hx5s0Fi2V7CIj36Q2Df+l/1izl8yzX06nnQzvgbwSLenm8vYDQ==",
++      "license": "MIT",
++      "peerDependencies": {
++        "react": "^18.2.0",
++        "react-dom": "^18.2.0"
++      }
++    },
+     "node_modules/react-dom": {
+       "version": "18.3.1",
+       "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
+diff --git a/frontend/package.json b/frontend/package.json
+index 644d9c8..c567a73 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -14,6 +14,7 @@
+   "dependencies": {
+     "lucide-react": "0.460.0",
+     "react": "18.3.1",
++    "react-custom-roulette": "1.4.1",
+     "react-dom": "18.3.1",
+     "react-router-dom": "6.28.0"
+   },
+diff --git a/frontend/scripts/mock-api.mjs b/frontend/scripts/mock-api.mjs
+index 179f147..5fc0184 100644
+--- a/frontend/scripts/mock-api.mjs
++++ b/frontend/scripts/mock-api.mjs
+@@ -58,10 +58,14 @@ const products = read('products.json').map((p, i) => {
+   };
+ });
+ 
++// 테마 특가: 이벤트·테마 데이터가 준비된 뒤(아래 이벤트 블록) 실제 계산 함수로 바뀝니다.
++let saleRateOf = (_productId) => 0;
++const salePriceOf = (price, rate) => (rate > 0 ? price - Math.floor((price * Math.min(rate, 100)) / 100 / 10) * 10 : price);
+ const summary = (p) => ({
+   id: p.id, incCd: p.incCd, category: LABEL[p.incCd], categorySlug: SLUG[p.incCd], name: p.name, subtitle: p.subtitle,
+   typeLabel: p.typeLabel, volume: p.volume, price: p.price, soldOut: p.stock <= 0, newArrival: p.newArrival,
+   imageUrl: p.imageUrl, thumbnailUrl: p.thumbnailUrl ?? p.imageUrl,
++  salePrice: salePriceOf(p.price, saleRateOf(p.id)), saleRate: saleRateOf(p.id),
+ });
+ 
+ const questions = read('questions.json').map((q) => ({
+@@ -193,12 +197,21 @@ function stream(req, res, me) {
+ 
+ let couponSeq = 1;
+ const coupons = [];
+-function issueWelcome(member) {
+-  if (member.role === 'ADMIN') return;
+-  coupons.push({ id: couponSeq++, memberId: member.id, name: '첫 향을 위한 환영 쿠폰', discountAmount: 3000, minOrderAmount: 30000, expiresAt: daysFromNow(30), usedAt: null });
++function issueWelcome(member, claim = false) {
++  if (!claim && member.role === 'ADMIN') return null;
++  const c = { id: couponSeq++, memberId: member.id, code: 'WELCOME', name: '첫 향을 위한 환영 쿠폰', discountAmount: 3000, discountRate: null, maxDiscountAmount: null, minOrderAmount: 30000, expiresAt: daysFromNow(30), usedAt: null };
++  coupons.push(c);
++  return c;
+ }
++// 데모 회원은 DataSeeder 처럼 미리 받아 둔 상태, 새로 가입한 회원은 이벤트 페이지에서 직접 받습니다.
+ members.forEach(issueWelcome);
+-const couponDto = ({ memberId: _m, ...c }) => ({ ...c, usable: !c.usedAt && new Date(c.expiresAt) > new Date() });
++const couponAmount = (c, amount) => {
++  if (!c.discountRate) return Math.min(c.discountAmount, amount);
++  let d = Math.floor((amount * c.discountRate) / 100 / 10) * 10;
++  if (c.maxDiscountAmount) d = Math.min(d, c.maxDiscountAmount);
++  return Math.min(d, amount);
++};
++const couponDto = ({ memberId: _m, code: _c, ...c }) => ({ ...c, usable: !c.usedAt && new Date(c.expiresAt) > new Date() });
+ 
+ let cartSeq = 1;
+ const carts = []; // {id, memberId, productId, quantity, createdAt}
+@@ -209,7 +222,9 @@ const cartDto = (memberId) => {
+     .map((c) => {
+       const p = products.find((x) => x.id === c.productId);
+       const available = p.active && p.stock > 0 && p.stock >= c.quantity;
+-      return { id: c.id, productId: p.id, name: p.name, category: LABEL[p.incCd], typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice: p.price, quantity: c.quantity, lineAmount: p.price * c.quantity, stock: p.stock, soldOut: p.stock <= 0, available };
++      const saleRate = saleRateOf(p.id);
++      const unitPrice = salePriceOf(p.price, saleRate);
++      return { id: c.id, productId: p.id, name: p.name, category: LABEL[p.incCd], typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice, quantity: c.quantity, lineAmount: unitPrice * c.quantity, stock: p.stock, soldOut: p.stock <= 0, available, listPrice: p.price, saleRate };
+     });
+   const itemsAmount = items.filter((i) => i.available).reduce((s, i) => s + i.lineAmount, 0);
+   return { items, itemsAmount, shippingFee: shippingFor(itemsAmount), freeShippingThreshold: 50000 };
+@@ -248,7 +263,8 @@ function createOrder(memberId, body, status = 'PENDING_PAYMENT', createdAt = now
+     const p = products.find((x) => x.id === productId && x.active);
+     if (!p) throw Object.assign(new Error('주문할 수 없는 상품이 포함되어 있습니다.'), { status: 404 });
+     if (quantity > p.stock) throw Object.assign(new Error(p.stock === 0 ? `'${p.name}'은(는) 품절되었어요.` : `'${p.name}'의 남은 재고는 ${p.stock}개입니다.`), { status: 409 });
+-    return { productId: p.id, name: p.name, typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice: p.price, quantity, lineAmount: p.price * quantity };
++    const unitPrice = salePriceOf(p.price, saleRateOf(p.id));
++    return { productId: p.id, name: p.name, typeLabel: p.typeLabel, volume: p.volume, imageUrl: p.imageUrl, unitPrice, quantity, lineAmount: unitPrice * quantity };
+   });
+   const itemsAmount = items.reduce((s, i) => s + i.lineAmount, 0);
+   let couponDiscount = 0;
+@@ -257,7 +273,7 @@ function createOrder(memberId, body, status = 'PENDING_PAYMENT', createdAt = now
+     if (!c || c.usedAt) throw Object.assign(new Error('이미 사용했거나 기간이 지난 쿠폰입니다.'), { status: 400 });
+     if (itemsAmount < c.minOrderAmount) throw Object.assign(new Error('쿠폰 최소 주문 금액을 확인해 주세요.'), { status: 400 });
+     c.usedAt = now();
+-    couponDiscount = Math.min(c.discountAmount, itemsAmount);
++    couponDiscount = couponAmount(c, itemsAmount);
+   }
+   const member = members.find((x) => x.id === memberId);
+   const pointUsed = body.usePoint ?? 0;
+@@ -640,6 +656,41 @@ const themeDetail = (t) => ({
+   others: publishedThemes().filter((o) => o.slug !== t.slug).slice(0, 3),
+ });
+ 
++// ── 이벤트 · 룰렛 ─────────────────────────────────────
++const kstToday = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
++const kstTomorrowIso = () => `${new Date(Date.parse(kstToday()) + 86400000).toISOString().slice(0, 10)}T00:00:00+09:00`;
++const events = read('events.json').map((e, i) => ({
++  id: i + 1, slug: e.slug, kind: e.kind, title: e.title, summary: e.summary, body: e.body, thumbnailUrl: e.thumbnail,
++  startsOn: e.start ? `${year}-${e.start}` : null, endsOn: e.end ? `${year}-${e.end}` : null,
++  themeSlug: e.themeSlug, discountRate: e.discountRate, sortOrder: e.sortOrder ?? i,
++}));
++const eventStatus = (e) => (e.startsOn && e.startsOn > kstToday() ? 'UPCOMING' : e.endsOn && e.endsOn < kstToday() ? 'ENDED' : 'ONGOING');
++const eventSummary = (e) => ({ id: e.id, slug: e.slug, kind: e.kind, title: e.title, summary: e.summary, thumbnailUrl: e.thumbnailUrl, startsOn: e.startsOn, endsOn: e.endsOn, status: eventStatus(e) });
++const STATUS_ORDER = { ONGOING: 0, UPCOMING: 1, ENDED: 2 };
++const PRIZES = [
++  { code: 'MISS', label: '꽝', rate: 0, maxDiscount: 0, weight: 55 },
++  { code: 'OFF_10', label: '10% 할인', rate: 10, maxDiscount: 10000, weight: 30 },
++  { code: 'OFF_20', label: '20% 할인', rate: 20, maxDiscount: 20000, weight: 12 },
++  { code: 'OFF_50', label: '50% 할인', rate: 50, maxDiscount: 30000, weight: 3 },
++];
++const prizeInfo = ({ weight, ...p }) => ({ ...p, probability: weight });
++const spins = []; // {memberId, spunOn, prize}
++saleRateOf = (productId) => {
++  let best = 0;
++  for (const e of events) {
++    if (e.kind !== 'THEME_SALE' || !e.discountRate || eventStatus(e) !== 'ONGOING') continue;
++    const t = themes.find((x) => x.slug === e.themeSlug && x.published);
++    if (t?.items.some((i) => i.productId === productId)) best = Math.max(best, e.discountRate);
++  }
++  return best;
++};
++function rouletteStatus(memberId) {
++  const ev = events.find((e) => e.kind === 'ROULETTE');
++  const today = spins.find((x) => x.memberId === memberId && x.spunOn === kstToday());
++  const prize = today && PRIZES.find((p) => p.code === today.prize);
++  return { spunToday: !!today, todayPrize: prize?.code ?? null, todayPrizeLabel: prize?.label ?? null, nextAvailableAt: kstTomorrowIso(), eventActive: !!ev && eventStatus(ev) === 'ONGOING', prizes: PRIZES.map(prizeInfo) };
++}
++
+ let uploadSeq = 1;
+ const uploads = new Map();
+ async function readMultipartFile(req) {
+@@ -731,7 +782,6 @@ const server = createServer(async (req, res) => {
+       if (members.some((x) => x.email === body.email)) return fail(res, 409, 'CONFLICT', '이미 가입된 이메일입니다.');
+       const member = { id: memberSeq++, email: body.email, password: body.password, name: body.name, phone: body.phone, role: 'USER', grade: 'BRONZE', marketingAgreed: body.marketingAgreed, createdAt: now(), point: 0, address: null };
+       members.push(member);
+-      issueWelcome(member);
+       if (body.perfumer) {
+         applications.push({ id: appSeq++, memberId: member.id, ...body.perfumerApplication, status: 'PENDING', rejectReason: null, createdAt: now(), reviewedAt: null });
+         notifications.unshift({ id: notiSeq++, recipientId: 1, type: 'PERFUMER_APPLICATION', message: `${member.name} 님이 조향사 인증을 요청했습니다.`, link: '/admin/perfumers', read: false, createdAt: now() });
+@@ -742,6 +792,33 @@ const server = createServer(async (req, res) => {
+       return send(res, 200, { query: q.q, videoId: null, embedUrl: null, searchUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent(q.q)}` });
+     }
+ 
++    if (method === 'GET' && path === '/api/events') return send(res, 200, [...events].sort((a, b) => STATUS_ORDER[eventStatus(a)] - STATUS_ORDER[eventStatus(b)] || a.sortOrder - b.sortOrder).map(eventSummary));
++    if (method === 'GET' && path === '/api/events/roulette/status') return send(res, 200, rouletteStatus(me?.id ?? null));
++    if (method === 'POST' && path === '/api/events/roulette/spin') {
++      if (!me) return fail(res, 401, 'UNAUTHORIZED', '로그인이 필요합니다.');
++      const st = rouletteStatus(me.id);
++      if (!st.eventActive) return fail(res, 400, 'BAD_REQUEST', '지금은 룰렛 이벤트 기간이 아니에요.');
++      if (st.spunToday) return fail(res, 409, 'CONFLICT', '오늘은 이미 룰렛을 돌렸어요. 내일 다시 도전해 주세요.');
++      let roll = Math.floor(Math.random() * 100);
++      const prize = PRIZES.find((p) => (roll -= p.weight) < 0);
++      let coupon = null;
++      if (prize.rate > 0) {
++        coupon = { id: couponSeq++, memberId: me.id, code: 'ROULETTE', name: `룰렛 ${prize.rate}% 할인 쿠폰`, discountAmount: 0, discountRate: prize.rate, maxDiscountAmount: prize.maxDiscount, minOrderAmount: 30000, expiresAt: daysFromNow(7), usedAt: null };
++        coupons.push(coupon);
++      }
++      spins.push({ memberId: me.id, spunOn: kstToday(), prize: prize.code });
++      const message = coupon ? `축하해요! ${prize.label} 쿠폰이 쿠폰함에 담겼어요.` : '아쉽지만 꽝이에요. 내일 다시 도전해 주세요.';
++      return send(res, 200, { prize: prize.code, label: prize.label, rate: prize.rate, coupon: coupon && couponDto(coupon), message, nextAvailableAt: kstTomorrowIso() });
++    }
++    if (method === 'POST' && path === '/api/events/welcome-coupon') {
++      if (!me) return fail(res, 401, 'UNAUTHORIZED', '로그인이 필요합니다.');
++      if (coupons.some((c) => c.memberId === me.id && c.code === 'WELCOME')) return fail(res, 409, 'CONFLICT', '이미 쿠폰을 받으셨습니다.');
++      return send(res, 201, couponDto(issueWelcome(me, true)));
++    }
++    if (method === 'GET' && (m = path.match(/^\/api\/events\/([\w-]+)$/))) {
++      const e = events.find((x) => x.slug === m[1]);
++      return e ? send(res, 200, { summary: eventSummary(e), body: e.body, themeSlug: e.themeSlug, discountRate: e.discountRate }) : fail(res, 404, 'NOT_FOUND', '이벤트를 찾을 수 없습니다.');
++    }
+     if (method === 'GET' && path === '/api/themes') return send(res, 200, publishedThemes());
+     if (method === 'GET' && (m = path.match(/^\/api\/themes\/([\w-]+)$/))) {
+       const t = themes.find((x) => x.slug === m[1] && x.published);
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 5bf91a4..6524b25 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -29,6 +29,7 @@ import CheckoutPage from './pages/order/CheckoutPage';
+ import OrderCompletePage from './pages/order/OrderCompletePage';
+ import { PaymentFailPage, PaymentSuccessPage } from './pages/order/PaymentResultPage';
+ import { ThemeDetailPage, ThemeListPage } from './pages/theme/ThemePages';
++import { EventDetailPage, EventListPage } from './pages/event/EventPages';
+ import ProductDetailPage from './pages/product/ProductDetailPage';
+ import CategoryPage from './pages/shop/CategoryPage';
+ 
+@@ -115,6 +116,8 @@ export default function App() {
+             />
+             <Route path="/theme" element={<ThemeListPage />} />
+             <Route path="/theme/:slug" element={<ThemeDetailPage />} />
++            <Route path="/events" element={<EventListPage />} />
++            <Route path="/events/:slug" element={<EventDetailPage />} />
+             <Route
+               path="/payments/success"
+               element={
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index ac6df16..d54823a 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -1,5 +1,9 @@
+ import { api } from './client';
+ import type {
++  EventDetail,
++  EventSummary,
++  RouletteStatus,
++  SpinResult,
+   AcceptResponse,
+   CheckoutResponse,
+   PaymentConfig,
+@@ -206,3 +210,11 @@ export const adminApi = {
+   reject: (id: number, reason: string) =>
+     api.post<PerfumerApplicationRow>(`/api/admin/perfumer-applications/${id}/reject`, { reason }),
+ };
++
++export const eventApi = {
++  list: () => api.get<EventSummary[]>('/api/events'),
++  detail: (slug: string) => api.get<EventDetail>(`/api/events/${slug}`),
++  rouletteStatus: () => api.get<RouletteStatus>('/api/events/roulette/status'),
++  spin: () => api.post<SpinResult>('/api/events/roulette/spin'),
++  claimWelcome: () => api.post<Coupon>('/api/events/welcome-coupon'),
++};
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index ac29ad9..e3bb81c 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -17,7 +17,12 @@ export interface ProductSummary {
+   subtitle: string;
+   typeLabel: string;
+   volume: string;
++  /** 정가 */
+   price: number;
++  /** 테마 특가가 반영된 실제 판매가 (특가가 없으면 price와 같음) */
++  salePrice: number;
++  /** 테마 특가 할인율(%), 없으면 0 */
++  saleRate: number;
+   soldOut: boolean;
+   newArrival: boolean;
+   imageUrl: string;
+@@ -250,6 +255,9 @@ export interface CartItem {
+   stock: number;
+   soldOut: boolean;
+   available: boolean;
++  /** 정가 (unitPrice는 테마 특가가 반영된 판매가) */
++  listPrice: number;
++  saleRate: number;
+ }
+ 
+ export interface Cart {
+@@ -263,6 +271,9 @@ export interface Coupon {
+   id: number;
+   name: string;
+   discountAmount: number;
++  /** 정률(%) 쿠폰이면 할인율, 정액 쿠폰은 null */
++  discountRate: number | null;
++  maxDiscountAmount: number | null;
+   minOrderAmount: number;
+   expiresAt: string;
+   usedAt: string | null;
+@@ -583,3 +594,52 @@ export interface UploadResult {
+   size: number;
+   contentType: string;
+ }
++
++/* ───────── 이벤트 ───────── */
++
++export type EventKind = 'THEME_SALE' | 'ROULETTE' | 'WELCOME_COUPON';
++
++export interface EventSummary {
++  id: number;
++  slug: string;
++  kind: EventKind;
++  title: string;
++  summary: string;
++  thumbnailUrl: string;
++  startsOn: string | null;
++  endsOn: string | null;
++  status: 'ONGOING' | 'UPCOMING' | 'ENDED';
++}
++
++export interface EventDetail {
++  summary: EventSummary;
++  body: string | null;
++  themeSlug: string | null;
++  discountRate: number | null;
++}
++
++export interface RoulettePrizeInfo {
++  code: 'MISS' | 'OFF_10' | 'OFF_20' | 'OFF_50';
++  label: string;
++  rate: number;
++  maxDiscount: number;
++  probability: number;
++}
++
++export interface RouletteStatus {
++  spunToday: boolean;
++  todayPrize: RoulettePrizeInfo['code'] | null;
++  todayPrizeLabel: string | null;
++  nextAvailableAt: string;
++  eventActive: boolean;
++  prizes: RoulettePrizeInfo[];
++}
++
++export interface SpinResult {
++  prize: RoulettePrizeInfo['code'];
++  label: string;
++  rate: number;
++  coupon: Coupon | null;
++  message: string;
++  nextAvailableAt: string;
++}
+diff --git a/frontend/src/components/Modal.module.css b/frontend/src/components/Modal.module.css
+new file mode 100644
+index 0000000..1c1b509
+--- /dev/null
++++ b/frontend/src/components/Modal.module.css
+@@ -0,0 +1,49 @@
++.backdrop {
++  position: fixed;
++  inset: 0;
++  z-index: 200;
++  background: rgba(20, 18, 14, 0.45);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  padding: 20px;
++  animation: fade 0.2s ease;
++}
++@keyframes fade {
++  from { opacity: 0; }
++  to { opacity: 1; }
++}
++.modal {
++  position: relative;
++  width: min(420px, 100%);
++  background: var(--color-paper);
++  padding: 36px 32px 28px;
++  display: flex;
++  flex-direction: column;
++  gap: 16px;
++  text-align: center;
++  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
++}
++.close {
++  position: absolute;
++  top: 14px;
++  right: 14px;
++  color: var(--color-muted);
++}
++.title {
++  font-family: var(--font-serif);
++  font-size: 24px;
++  line-height: 1.4;
++}
++.body {
++  font-size: 14px;
++  line-height: 1.8;
++  color: var(--color-poem);
++}
++.actions {
++  display: flex;
++  gap: 8px;
++  justify-content: center;
++  margin-top: 4px;
++}
++.actions :global(.btn) { height: 46px; flex: 1; }
+diff --git a/frontend/src/components/Modal.tsx b/frontend/src/components/Modal.tsx
+new file mode 100644
+index 0000000..e21b55e
+--- /dev/null
++++ b/frontend/src/components/Modal.tsx
+@@ -0,0 +1,34 @@
++import { X } from 'lucide-react';
++import { useEffect, type ReactNode } from 'react';
++import styles from './Modal.module.css';
++
++interface Props {
++  title: string;
++  children?: ReactNode;
++  actions?: ReactNode;
++  onClose: () => void;
++}
++
++/** 가운데 뜨는 작은 안내 모달 (Esc·바깥 클릭으로 닫힘) */
++export default function Modal({ title, children, actions, onClose }: Props) {
++  useEffect(() => {
++    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
++    document.addEventListener('keydown', onKey);
++    return () => document.removeEventListener('keydown', onKey);
++  }, [onClose]);
++
++  return (
++    <div className={styles.backdrop} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
++      <div className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="modal-title">
++        <button className={styles.close} aria-label="닫기" onClick={onClose}>
++          <X size={18} strokeWidth={1.5} />
++        </button>
++        <h2 id="modal-title" className={styles.title}>
++          {title}
++        </h2>
++        {children && <div className={styles.body}>{children}</div>}
++        {actions && <div className={styles.actions}>{actions}</div>}
++      </div>
++    </div>
++  );
++}
+diff --git a/frontend/src/components/PriceRange.module.css b/frontend/src/components/PriceRange.module.css
+new file mode 100644
+index 0000000..0653c52
+--- /dev/null
++++ b/frontend/src/components/PriceRange.module.css
+@@ -0,0 +1,101 @@
++.panel {
++  position: absolute;
++  top: calc(100% + 6px);
++  left: 0;
++  width: 320px;
++  max-width: calc(100vw - 40px);
++  padding: 20px;
++  background: var(--color-paper);
++  border: 1px solid var(--color-line);
++  box-shadow: 0 12px 28px rgba(39, 39, 32, 0.1);
++  z-index: 20;
++  display: flex;
++  flex-direction: column;
++  gap: 16px;
++}
++.value {
++  font-size: 13px;
++  color: var(--color-muted);
++  text-align: center;
++}
++.value strong {
++  font-family: var(--font-latin);
++  font-weight: 500;
++  font-size: 16px;
++  color: var(--color-brown);
++}
++.slider {
++  position: relative;
++  height: 24px;
++}
++.track,
++.fill {
++  position: absolute;
++  top: 50%;
++  height: 4px;
++  transform: translateY(-50%);
++}
++.track {
++  left: 0;
++  right: 0;
++  background: var(--color-line);
++}
++.fill { background: var(--color-brown); }
++.slider input {
++  position: absolute;
++  inset: 0;
++  width: 100%;
++  margin: 0;
++  background: none;
++  pointer-events: none;
++  appearance: none;
++  -webkit-appearance: none;
++}
++.slider input::-webkit-slider-runnable-track { background: transparent; height: 24px; }
++.slider input::-moz-range-track { background: transparent; }
++.slider input::-webkit-slider-thumb {
++  -webkit-appearance: none;
++  pointer-events: auto;
++  width: 20px;
++  height: 20px;
++  margin-top: 2px;
++  border-radius: 50%;
++  background: var(--color-paper);
++  border: 2px solid var(--color-brown);
++  cursor: grab;
++}
++.slider input::-moz-range-thumb {
++  pointer-events: auto;
++  width: 16px;
++  height: 16px;
++  border-radius: 50%;
++  background: var(--color-paper);
++  border: 2px solid var(--color-brown);
++  cursor: grab;
++}
++.slider input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(102, 81, 63, 0.25); }
++.scale {
++  display: flex;
++  justify-content: space-between;
++  font-size: 11px;
++  color: var(--color-muted);
++  margin-top: -8px;
++}
++.presets {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 6px;
++}
++.presets button {
++  padding: 4px 12px;
++  border: 1px solid var(--color-line);
++  border-radius: 999px;
++  font-size: 12px;
++}
++.presets button:hover { border-color: var(--color-brown); color: var(--color-brown); }
++.actions {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 8px;
++}
++.actions :global(.btn) { height: 42px; font-size: 13px; }
+diff --git a/frontend/src/components/PriceRange.tsx b/frontend/src/components/PriceRange.tsx
+new file mode 100644
+index 0000000..2194867
+--- /dev/null
++++ b/frontend/src/components/PriceRange.tsx
+@@ -0,0 +1,127 @@
++import { ChevronDown } from 'lucide-react';
++import { useEffect, useRef, useState } from 'react';
++import { formatPrice } from '../lib/format';
++import dropdown from './Dropdown.module.css';
++import styles from './PriceRange.module.css';
++
++export const PRICE_MIN = 0;
++export const PRICE_MAX = 100_000;
++const STEP = 1_000;
++
++const PRESETS: { label: string; range: [number, number] }[] = [
++  { label: '3만원 이하', range: [0, 30_000] },
++  { label: '3만~5만원', range: [30_000, 50_000] },
++  { label: '5만원 이상', range: [50_000, PRICE_MAX] },
++];
++
++/** "10000-15000" → [10000, 15000]. 끝값이 비어 있으면 최솟값/최댓값 */
++export function parsePriceParam(value: string): [number, number] | null {
++  if (!value) return null;
++  const [min, max] = value.split('-');
++  return [min ? Number(min) : PRICE_MIN, max ? Number(max) : PRICE_MAX];
++}
++
++export function priceLabel(value: string) {
++  const range = parsePriceParam(value);
++  if (!range) return '전체';
++  const [min, max] = range;
++  if (max >= PRICE_MAX) return `${formatPrice(min)} 이상`;
++  if (min <= PRICE_MIN) return `${formatPrice(max)} 이하`;
++  return `${formatPrice(min)} ~ ${formatPrice(max)}`;
++}
++
++interface Props {
++  value: string;
++  onChange: (value: string) => void;
++}
++
++/** 가격대 필터: 두 손잡이를 끌어 최소·최대 가격을 정하는 슬라이더 (1,000원 단위) */
++export default function PriceRange({ value, onChange }: Props) {
++  const [open, setOpen] = useState(false);
++  const [range, setRange] = useState<[number, number]>(parsePriceParam(value) ?? [PRICE_MIN, PRICE_MAX]);
++  const ref = useRef<HTMLDivElement>(null);
++
++  useEffect(() => {
++    setRange(parsePriceParam(value) ?? [PRICE_MIN, PRICE_MAX]);
++  }, [value, open]);
++
++  useEffect(() => {
++    const close = (e: MouseEvent) => {
++      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
++    };
++    document.addEventListener('mousedown', close);
++    return () => document.removeEventListener('mousedown', close);
++  }, []);
++
++  const [min, max] = range;
++  const left = ((min - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * 100;
++  const right = 100 - ((max - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * 100;
++
++  const apply = (next: [number, number]) => {
++    const [a, b] = next;
++    const isAll = a <= PRICE_MIN && b >= PRICE_MAX;
++    // 최댓값 끝까지 끌면 "이상"으로, 최솟값 끝이면 "이하"로 보냅니다.
++    onChange(isAll ? '' : `${a}-${b >= PRICE_MAX ? '' : b}`);
++    setOpen(false);
++  };
++
++  return (
++    <div className={dropdown.wrap} ref={ref}>
++      <button type="button" className={dropdown.control} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
++        <span>가격 · {priceLabel(value)}</span>
++        <ChevronDown size={14} strokeWidth={1.5} className={open ? dropdown.flip : ''} />
++      </button>
++      {open && (
++        <div className={styles.panel} role="dialog" aria-label="가격대 선택">
++          <p className={styles.value}>
++            <strong>{formatPrice(min)}</strong> ~ <strong>{max >= PRICE_MAX ? `${formatPrice(PRICE_MAX)} 이상` : formatPrice(max)}</strong>
++          </p>
++          <div className={styles.slider}>
++            <div className={styles.track} />
++            <div className={styles.fill} style={{ left: `${left}%`, right: `${right}%` }} />
++            <input
++              type="range"
++              min={PRICE_MIN}
++              max={PRICE_MAX}
++              step={STEP}
++              value={min}
++              aria-label="최소 가격"
++              onChange={(e) => setRange([Math.min(Number(e.target.value), max - STEP), max])}
++              style={{ zIndex: min > PRICE_MAX - STEP * 5 ? 5 : 3 }}
++            />
++            <input
++              type="range"
++              min={PRICE_MIN}
++              max={PRICE_MAX}
++              step={STEP}
++              value={max}
++              aria-label="최대 가격"
++              onChange={(e) => setRange([min, Math.max(Number(e.target.value), min + STEP)])}
++              style={{ zIndex: 4 }}
++            />
++          </div>
++          <div className={styles.scale} aria-hidden>
++            <span>0원</span>
++            <span>5만원</span>
++            <span>10만원+</span>
++          </div>
++          <div className={styles.presets}>
++            {PRESETS.map((p) => (
++              <button key={p.label} type="button" onClick={() => setRange(p.range)}>
++                {p.label}
++              </button>
++            ))}
++          </div>
++          <div className={styles.actions}>
++            <button type="button" className="btn btn-ghost" onClick={() => apply([PRICE_MIN, PRICE_MAX])}>
++              초기화
++            </button>
++            <button type="button" className="btn btn-primary" onClick={() => apply(range)}>
++              적용
++            </button>
++          </div>
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/frontend/src/components/ProductCard.module.css b/frontend/src/components/ProductCard.module.css
+index 305e352..237cd6b 100644
+--- a/frontend/src/components/ProductCard.module.css
++++ b/frontend/src/components/ProductCard.module.css
+@@ -95,6 +95,16 @@
+ .price {
+   font-size: 15px;
+ }
++.listPrice {
++  margin-right: 6px;
++  font-size: 12px;
++  color: var(--color-muted);
++}
++.saleRate {
++  margin-right: 6px;
++  color: var(--color-brown);
++  font-weight: 500;
++}
+ 
+ @media (max-width: 720px) {
+   .imageWrap {
+diff --git a/frontend/src/components/ProductCard.tsx b/frontend/src/components/ProductCard.tsx
+index a44838a..f3526ee 100644
+--- a/frontend/src/components/ProductCard.tsx
++++ b/frontend/src/components/ProductCard.tsx
+@@ -16,12 +16,14 @@ export default function ProductCard({ product, variant = 'list', badge }: Props)
+   const { wished, toggleWish } = useShop();
+   const saved = wished(product.id);
+   const image = variant === 'home' ? product.thumbnailUrl : product.imageUrl;
++  const onSale = product.saleRate > 0;
++  const label = badge ?? (onSale ? `${product.saleRate}% 특가` : undefined);
+ 
+   return (
+     <article className={`${styles.card} ${styles[variant]}`}>
+       <Link to={`/products/${product.id}`} className={styles.imageWrap} aria-label={`${product.name} 상세 보기`}>
+         <img src={image} alt={`${product.name} ${product.typeLabel}`} loading="lazy" />
+-        {badge && <span className={styles.badge}>{badge}</span>}
++        {label && <span className={styles.badge}>{label}</span>}
+         {product.soldOut && <span className={styles.soldOut}>SOLD OUT</span>}
+       </Link>
+       <button
+@@ -39,7 +41,15 @@ export default function ProductCard({ product, variant = 'list', badge }: Props)
+         </div>
+         <p className={styles.name}>{product.name}</p>
+         <p className={styles.subtitle}>{product.subtitle}</p>
+-        <p className={styles.price}>{formatPrice(product.price)}</p>
++        {onSale ? (
++          <p className={styles.price}>
++            <s className={styles.listPrice}>{formatPrice(product.price)}</s>
++            <span className={styles.saleRate}>{product.saleRate}%</span>
++            {formatPrice(product.salePrice)}
++          </p>
++        ) : (
++          <p className={styles.price}>{formatPrice(product.price)}</p>
++        )}
+       </Link>
+     </article>
+   );
+diff --git a/frontend/src/components/layout/Header.module.css b/frontend/src/components/layout/Header.module.css
+index 6515fb9..38e3e61 100644
+--- a/frontend/src/components/layout/Header.module.css
++++ b/frontend/src/components/layout/Header.module.css
+@@ -271,3 +271,90 @@
+     width: auto;
+   }
+ }
++
++/* 로그인 환영 문구: 우측 아이콘 아래 */
++.greeting {
++  position: absolute;
++  right: var(--page-x);
++  bottom: 8px;
++  font-size: 11px;
++  color: var(--color-muted);
++  white-space: nowrap;
++  pointer-events: none;
++}
++
++/* 돋보기 → 상단 중앙 검색 바 */
++.searchLayer {
++  position: absolute;
++  top: 100%;
++  left: 50%;
++  transform: translateX(-50%);
++  width: min(720px, calc(100vw - 32px));
++  margin-top: 12px;
++  background: var(--color-paper);
++  border: 1px solid var(--color-line);
++  box-shadow: 0 18px 40px rgba(39, 39, 32, 0.12);
++  padding: 18px 20px 16px;
++  display: flex;
++  flex-direction: column;
++  gap: 14px;
++  animation: search-in 0.2s ease;
++  z-index: 20;
++}
++@keyframes search-in {
++  from { opacity: 0; transform: translate(-50%, -6px); }
++  to { opacity: 1; transform: translate(-50%, 0); }
++}
++.searchBar {
++  display: flex;
++  align-items: center;
++  gap: 12px;
++  height: 52px;
++  padding: 0 6px 0 16px;
++  border: 1px solid var(--color-brown);
++  background: var(--color-bg);
++  color: var(--color-brown);
++}
++.searchBar input {
++  flex: 1;
++  min-width: 0;
++  height: 100%;
++  border: none;
++  outline: none;
++  background: transparent;
++  font-size: 15px;
++  color: var(--color-ink);
++}
++.searchBar input::placeholder { color: var(--color-muted); }
++.searchSubmit {
++  height: 40px;
++  padding: 0 18px;
++  background: var(--color-brown);
++  color: var(--color-paper);
++  font-size: 13px;
++  font-weight: 500;
++}
++.suggestions {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  gap: 8px;
++  font-size: 12px;
++}
++.suggestions span { color: var(--color-muted); margin-right: 4px; }
++.suggestions button {
++  padding: 4px 12px;
++  border: 1px solid var(--color-line);
++  border-radius: 999px;
++  color: var(--color-poem);
++  background: var(--color-bg);
++}
++.suggestions button:hover { border-color: var(--color-brown); color: var(--color-brown); }
++
++@media (max-width: 1024px) {
++  .greeting { bottom: 4px; font-size: 10px; }
++}
++@media (max-width: 720px) {
++  .searchLayer { margin-top: 8px; padding: 14px; }
++  .searchBar input { font-size: 14px; }
++}
+diff --git a/frontend/src/components/layout/Header.tsx b/frontend/src/components/layout/Header.tsx
+index 8bbc225..671e129 100644
+--- a/frontend/src/components/layout/Header.tsx
++++ b/frontend/src/components/layout/Header.tsx
+@@ -18,8 +18,11 @@ const NAV = [
+   { to: '/theme', label: '테마' },
+   { to: '/custom', label: '커스텀' },
+   { to: '/scent-finder', label: '나만의 향 찾기', memberOnly: true },
++  { to: '/events', label: '이벤트' },
+ ];
+ 
++const SEARCH_SUGGESTIONS = ['비 온 뒤', '우디', '잠들기 전', '캔들', '차 한 잔', '살결'];
++
+ export default function Header() {
+   const { member, logout, requireMember } = useAuth();
+   const navigate = useNavigate();
+@@ -27,6 +30,8 @@ export default function Header() {
+   const toast = useToast();
+   const { cartCount } = useShop();
+   const [menuOpen, setMenuOpen] = useState(false);
++  const [searchOpen, setSearchOpen] = useState(false);
++  const [searchText, setSearchText] = useState('');
+   const [accountOpen, setAccountOpen] = useState(false);
+   const [noticeOpen, setNoticeOpen] = useState(false);
+   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+@@ -36,6 +41,7 @@ export default function Header() {
+ 
+   useEffect(() => {
+     setMenuOpen(false);
++    setSearchOpen(false);
+     setAccountOpen(false);
+     setNoticeOpen(false);
+   }, [location.pathname]);
+@@ -102,7 +108,7 @@ export default function Header() {
+   return (
+     <header className={styles.header}>
+       <div className={styles.announcement}>
+-        <Link to="/signup">첫 만남을 위한 작은 선물, 신규 가입 시 3,000원 웰컴 쿠폰 →</Link>
++        <Link to="/events/welcome-coupon">첫 만남을 위한 작은 선물, 회원이라면 누구나 3,000원 웰컴 쿠폰 →</Link>
+       </div>
+       <div className={`${styles.nav} px`}>
+         <button className={styles.menuButton} onClick={() => setMenuOpen((v) => !v)} aria-label="메뉴 열기">
+@@ -133,8 +139,8 @@ export default function Header() {
+         </nav>
+ 
+         <div className={styles.utility}>
+-          <button aria-label="검색" onClick={() => navigate('/search')}>
+-            <Search size={21} strokeWidth={1.4} />
++          <button aria-label="검색" aria-expanded={searchOpen} onClick={() => setSearchOpen((v) => !v)}>
++            {searchOpen ? <X size={21} strokeWidth={1.4} /> : <Search size={21} strokeWidth={1.4} />}
+           </button>
+ 
+           {member && (
+@@ -202,7 +208,51 @@ export default function Header() {
+           </button>
+           <span className={styles.count}>{cartCount}</span>
+         </div>
++        {member && <p className={styles.greeting}>{member.name}님 환영합니다!</p>}
+       </div>
++
++      {searchOpen && (
++        <div className={styles.searchLayer} role="dialog" aria-label="향 검색">
++          <form
++            className={styles.searchBar}
++            role="search"
++            onSubmit={(e) => {
++              e.preventDefault();
++              const q = searchText.trim();
++              navigate(q ? `/search?keyword=${encodeURIComponent(q)}` : '/search');
++              setSearchOpen(false);
++            }}
++          >
++            <Search size={20} strokeWidth={1.4} aria-hidden />
++            <input
++              autoFocus
++              value={searchText}
++              onChange={(e) => setSearchText(e.target.value)}
++              onKeyDown={(e) => e.key === 'Escape' && setSearchOpen(false)}
++              placeholder="상품명이나 떠오르는 장면을 검색하세요"
++              aria-label="검색어"
++            />
++            <button type="submit" className={styles.searchSubmit}>
++              검색
++            </button>
++          </form>
++          <div className={styles.suggestions}>
++            <span>추천 검색어</span>
++            {SEARCH_SUGGESTIONS.map((word) => (
++              <button
++                key={word}
++                type="button"
++                onClick={() => {
++                  navigate(`/search?keyword=${encodeURIComponent(word)}`);
++                  setSearchOpen(false);
++                }}
++              >
++                {word}
++              </button>
++            ))}
++          </div>
++        </div>
++      )}
+     </header>
+   );
+ }
+diff --git a/frontend/src/lib/format.ts b/frontend/src/lib/format.ts
+index 75e3b4f..621c826 100644
+--- a/frontend/src/lib/format.ts
++++ b/frontend/src/lib/format.ts
+@@ -73,3 +73,27 @@ export const formatDateTime = (iso: string) => {
+   const pad = (n: number) => String(n).padStart(2, '0');
+   return `${formatDate(iso)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+ };
++
++/** 쿠폰을 이 주문 금액에 적용했을 때의 할인 금액 (백엔드 Coupon.discountFor와 같은 계산) */
++export function couponDiscount(
++  coupon: { discountAmount: number; discountRate: number | null; maxDiscountAmount: number | null; minOrderAmount: number },
++  amount: number,
++) {
++  if (amount < coupon.minOrderAmount) return 0;
++  if (!coupon.discountRate) return Math.min(coupon.discountAmount, amount);
++  let discount = Math.floor((amount * coupon.discountRate) / 100 / 10) * 10;
++  if (coupon.maxDiscountAmount != null) discount = Math.min(discount, coupon.maxDiscountAmount);
++  return Math.min(discount, amount);
++}
++
++/** 쿠폰 혜택 한 줄: "3,000원" 또는 "10% (최대 10,000원)" */
++export function couponBenefit(coupon: { discountAmount: number; discountRate: number | null; maxDiscountAmount: number | null }) {
++  if (!coupon.discountRate) return formatPrice(coupon.discountAmount);
++  return `${coupon.discountRate}%${coupon.maxDiscountAmount ? ` (최대 ${formatPrice(coupon.maxDiscountAmount)})` : ''}`;
++}
++
++/** 이벤트·테마 기간 표시: "2026.10.01 ~ 2026.11.02" / 기간이 없으면 "상시 진행" */
++export function formatPeriod(start: string | null, end: string | null) {
++  if (!start && !end) return '상시 진행';
++  return `${start ? formatDate(start) : ''} ~ ${end ? formatDate(end) : ''}`.trim();
++}
+diff --git a/frontend/src/pages/auth/SignupPage.tsx b/frontend/src/pages/auth/SignupPage.tsx
+index 336c45b..53965cc 100644
+--- a/frontend/src/pages/auth/SignupPage.tsx
++++ b/frontend/src/pages/auth/SignupPage.tsx
+@@ -121,7 +121,7 @@ export default function SignupPage() {
+             <p>마음에 남은 향과 주문 내역을 한곳에서 살펴보세요. 작은 취향이 쌓여 당신만의 여운이 됩니다.</p>
+           </div>
+           <ol className={styles.benefits}>
+-            <Benefit no="01" title="향과 함께하는 첫 만남" desc="신규 가입 웰컴 쿠폰 3,000원 · 혜택 예시" />
++            <Benefit no="01" title="향과 함께하는 첫 만남" desc="가입 후 이벤트에서 웰컴 쿠폰 3,000원 받기" />
+             <Benefit no="02" title="취향을 따라 쌓이는 여운" desc="브론즈부터 다이아까지, 나의 회원등급 확인" />
+             <Benefit no="03" title="나에게 도착하는 향의 편지" desc="선택 동의 시 새로운 향과 큐레이션 소식" />
+           </ol>
+diff --git a/frontend/src/pages/commission/CommissionNewPage.tsx b/frontend/src/pages/commission/CommissionNewPage.tsx
+index 332b766..ff48ec0 100644
+--- a/frontend/src/pages/commission/CommissionNewPage.tsx
++++ b/frontend/src/pages/commission/CommissionNewPage.tsx
+@@ -35,7 +35,15 @@ export default function CommissionNewPage() {
+     if (form.description.trim().length < 20) next.description = '원하는 향을 20자 이상 들려주세요.';
+     if (!budget || budget < 30_000) next.budget = '예산은 30,000원 이상으로 정해 주세요.';
+     setErrors(next);
+-    if (Object.keys(next).length) return;
++    const firstError = Object.keys(next)[0];
++    if (firstError) {
++      // 입력 칸 아래 안내만으로는 놓치기 쉬워(버튼은 오른쪽 아래) 토스트와 함께 해당 칸으로 이동합니다.
++      toast(next[firstError]);
++      const target = document.getElementById(`commission-${firstError}`);
++      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
++      target?.focus({ preventScroll: true });
++      return;
++    }
+ 
+     setSubmitting(true);
+     try {
+@@ -68,7 +76,7 @@ export default function CommissionNewPage() {
+         <div className={`${styles.main} ${styles.form}`}>
+           <label className={styles.field}>
+             의뢰 제목<span className="sr-only"> (필수)</span>
+-            <input className="input" maxLength={60} placeholder="예: 비 오는 날의 오래된 서재" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
++            <input id="commission-title" className="input" maxLength={60} placeholder="예: 비 오는 날의 오래된 서재" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+             {errors.title && <span className="error-text">{errors.title}</span>}
+           </label>
+ 
+@@ -91,6 +99,7 @@ export default function CommissionNewPage() {
+           <label className={styles.field}>
+             장면 이야기
+             <textarea
++              id="commission-description"
+               className="input"
+               rows={9}
+               maxLength={2000}
+@@ -122,8 +131,8 @@ export default function CommissionNewPage() {
+ 
+           <div className={styles.pair}>
+             <div className={styles.field}>
+-              <label htmlFor="budget">예산</label>
+-              <input id="budget" className="input" inputMode="numeric" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
++              <label htmlFor="commission-budget">예산</label>
++              <input id="commission-budget" className="input" inputMode="numeric" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
+               <div className={styles.choices}>
+                 {BUDGETS.map((b) => (
+                   <button key={b} type="button" className={styles.choice} aria-checked={Number(form.budget) === b} role="radio" onClick={() => setForm({ ...form, budget: String(b) })}>
+@@ -157,6 +166,11 @@ export default function CommissionNewPage() {
+             <button className="btn btn-primary" disabled={submitting}>
+               {submitting ? '등록 중…' : '의뢰 등록하기'}
+             </button>
++            {Object.keys(errors).length > 0 && (
++              <p className="error-text" role="alert">
++                {Object.values(errors)[0]}
++              </p>
++            )}
+             <Link to="/custom" className={styles.back}>
+               ← 의뢰 게시판으로
+             </Link>
+diff --git a/frontend/src/pages/event/Event.module.css b/frontend/src/pages/event/Event.module.css
+new file mode 100644
+index 0000000..3462234
+--- /dev/null
++++ b/frontend/src/pages/event/Event.module.css
+@@ -0,0 +1,222 @@
++/* 이벤트 — 테마·커미션 화면과 같은 디자인 언어 */
++
++.list {
++  display: flex;
++  flex-direction: column;
++  border-top: 1px solid var(--color-ink);
++  margin-bottom: 80px;
++}
++.row {
++  display: grid;
++  grid-template-columns: 280px 1fr;
++  gap: 32px;
++  align-items: center;
++  padding: 28px 0;
++  border-bottom: 1px solid var(--color-line);
++  transition: background-color 0.2s ease;
++}
++.row:hover { background: rgba(232, 224, 211, 0.25); }
++.thumb {
++  width: 100%;
++  aspect-ratio: 16 / 10;
++  object-fit: cover;
++  background: var(--color-sand);
++}
++.rowText {
++  display: flex;
++  flex-direction: column;
++  gap: 10px;
++}
++.rowTitle {
++  font-family: var(--font-serif);
++  font-size: 24px;
++  line-height: 1.45;
++}
++.rowSummary {
++  font-size: 14px;
++  line-height: 1.85;
++  color: var(--color-poem);
++}
++.period {
++  font-size: 12px;
++  color: var(--color-muted);
++  font-family: var(--font-latin);
++}
++.chip {
++  align-self: flex-start;
++  display: inline-flex;
++  align-items: center;
++  height: 24px;
++  padding: 0 10px;
++  font-size: 11px;
++  background: var(--color-brown);
++  color: var(--color-paper);
++}
++.chipUPCOMING { background: var(--color-sand); color: var(--color-brown); }
++.chipENDED { background: transparent; color: var(--color-muted); border: 1px solid var(--color-line); }
++.rowEnded { opacity: 0.6; }
++
++/* 상세 */
++.hero {
++  display: grid;
++  grid-template-columns: 1.1fr 1fr;
++  gap: 48px;
++  align-items: start;
++  padding-bottom: 56px;
++}
++.heroImage {
++  width: 100%;
++  aspect-ratio: 4 / 3;
++  object-fit: cover;
++}
++.heroCopy {
++  display: flex;
++  flex-direction: column;
++  gap: 16px;
++}
++.heroTitle {
++  font-family: var(--font-serif);
++  font-size: 32px;
++  line-height: 1.5;
++}
++.body {
++  font-size: 15px;
++  line-height: 2;
++  color: var(--color-poem);
++  white-space: pre-line;
++}
++.badge {
++  align-self: flex-start;
++  display: inline-flex;
++  align-items: baseline;
++  gap: 8px;
++  padding: 12px 18px;
++  background: var(--color-sand);
++  color: var(--color-brown);
++  font-size: 13px;
++}
++.badge strong {
++  font-family: var(--font-latin);
++  font-size: 28px;
++  font-weight: 500;
++}
++.heroActions {
++  display: flex;
++  gap: 10px;
++  flex-wrap: wrap;
++}
++.section {
++  display: flex;
++  flex-direction: column;
++  gap: 24px;
++  padding-top: 48px;
++  padding-bottom: 80px;
++  border-top: 1px solid var(--color-line);
++}
++.sectionHead {
++  display: flex;
++  justify-content: space-between;
++  align-items: flex-end;
++  gap: 12px;
++}
++.sectionHead h2 {
++  font-family: var(--font-serif);
++  font-size: 26px;
++}
++.products {
++  display: grid;
++  grid-template-columns: repeat(4, 1fr);
++  gap: 32px 20px;
++}
++
++/* 룰렛 */
++.roulette {
++  display: grid;
++  grid-template-columns: auto 1fr;
++  gap: 56px;
++  align-items: center;
++}
++.wheelWrap {
++  width: 445px;
++  max-width: 100%;
++  display: flex;
++  justify-content: center;
++}
++.wheelScale {
++  transform-origin: top center;
++}
++.rouletteSide {
++  display: flex;
++  flex-direction: column;
++  gap: 20px;
++}
++.odds {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 13px;
++}
++.odds th,
++.odds td {
++  padding: 10px 12px;
++  border-bottom: 1px solid var(--color-line);
++  text-align: left;
++}
++.odds th { color: var(--color-muted); font-weight: 400; font-size: 12px; }
++.odds td:last-child { font-family: var(--font-latin); }
++.spinButton {
++  height: 56px !important;
++  font-size: 15px !important;
++}
++.note {
++  font-size: 12px;
++  color: var(--color-muted);
++  line-height: 1.8;
++}
++
++/* 신규 가입 쿠폰 */
++.couponCard {
++  display: grid;
++  grid-template-columns: 1fr auto;
++  align-items: center;
++  gap: 24px;
++  padding: 32px;
++  background: var(--color-brown);
++  color: var(--color-paper);
++  position: relative;
++  max-width: 640px;
++}
++.couponCard::before,
++.couponCard::after {
++  content: '';
++  position: absolute;
++  top: 50%;
++  width: 24px;
++  height: 24px;
++  border-radius: 50%;
++  background: var(--color-bg);
++  transform: translateY(-50%);
++}
++.couponCard::before { left: -12px; }
++.couponCard::after { right: -12px; }
++.couponCard strong {
++  font-family: var(--font-latin);
++  font-size: 40px;
++  font-weight: 500;
++}
++.couponCard p { font-size: 13px; color: var(--color-sand); line-height: 1.8; }
++.couponCard :global(.btn) { background: var(--color-paper); color: var(--color-brown); border-color: var(--color-paper); }
++
++@media (max-width: 1100px) {
++  .hero { grid-template-columns: 1fr; gap: 28px; }
++  .products { grid-template-columns: repeat(2, 1fr); }
++  .roulette { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 32px; }
++  .wheelWrap { width: 100%; }
++  .rouletteSide { width: 100%; }
++}
++@media (max-width: 720px) {
++  .row { grid-template-columns: 1fr; gap: 16px; padding: 24px 0; }
++  .rowTitle { font-size: 20px; }
++  .heroTitle { font-size: 24px; }
++  .couponCard { grid-template-columns: 1fr; padding: 24px; }
++  .couponCard strong { font-size: 32px; }
++}
+diff --git a/frontend/src/pages/event/EventPages.tsx b/frontend/src/pages/event/EventPages.tsx
+new file mode 100644
+index 0000000..66261a7
+--- /dev/null
++++ b/frontend/src/pages/event/EventPages.tsx
+@@ -0,0 +1,360 @@
++import { useCallback, useEffect, useState } from 'react';
++import { Link, useNavigate, useParams } from 'react-router-dom';
++import { Wheel } from 'react-custom-roulette';
++import { ApiError } from '../../api/client';
++import { eventApi, themeApi } from '../../api/endpoints';
++import type { EventDetail, EventSummary, RouletteStatus, SpinResult, ThemeDetail } from '../../api/types';
++import { useAuth } from '../../auth/AuthContext';
++import Modal from '../../components/Modal';
++import ProductCard from '../../components/ProductCard';
++import { CompactFooter } from '../../components/layout/Footer';
++import { useToast } from '../../components/Toast';
++import { formatDateTime, formatPeriod, formatPrice } from '../../lib/format';
++import NotFoundPage from '../NotFoundPage';
++import OrderIntro from '../order/OrderIntro';
++import styles from './Event.module.css';
++
++const STATUS_LABEL: Record<EventSummary['status'], string> = {
++  ONGOING: '진행 중',
++  UPCOMING: '예정',
++  ENDED: '종료',
++};
++
++function StatusChip({ status }: { status: EventSummary['status'] }) {
++  return <span className={`${styles.chip} ${styles[`chip${status}`] ?? ''}`}>{STATUS_LABEL[status]}</span>;
++}
++
++/** 이벤트 목록: 한 행에 썸네일 · 이벤트명 · 내용 · (작은 회색 글씨) 기간 */
++export function EventListPage() {
++  const [events, setEvents] = useState<EventSummary[] | null>(null);
++
++  useEffect(() => {
++    eventApi.list().then(setEvents).catch(() => setEvents([]));
++  }, []);
++
++  return (
++    <>
++      <OrderIntro crumbs={[{ label: '이벤트' }]} eyebrow="EVENTS" title="여운이 준비한 작은 선물들" />
++      <section className="page px">
++        <div className={styles.list}>
++          {!events &&
++            [0, 1, 2].map((n) => (
++              <div key={n} className={styles.row}>
++                <div className={`${styles.thumb} skeleton`} />
++                <div className="skeleton" style={{ height: 96 }} />
++              </div>
++            ))}
++          {events?.length === 0 && <p className="help" style={{ padding: '40px 0' }}>진행 중인 이벤트가 없어요.</p>}
++          {events?.map((e) => (
++            <Link key={e.id} to={`/events/${e.slug}`} className={`${styles.row} ${e.status === 'ENDED' ? styles.rowEnded : ''}`}>
++              <img className={styles.thumb} src={e.thumbnailUrl} alt="" loading="lazy" />
++              <div className={styles.rowText}>
++                <StatusChip status={e.status} />
++                <h2 className={styles.rowTitle}>{e.title}</h2>
++                <p className={styles.rowSummary}>{e.summary}</p>
++                <p className={styles.period}>이벤트 기간 · {formatPeriod(e.startsOn, e.endsOn)}</p>
++              </div>
++            </Link>
++          ))}
++        </div>
++      </section>
++      <CompactFooter />
++    </>
++  );
++}
++
++export function EventDetailPage() {
++  const { slug } = useParams();
++  const [event, setEvent] = useState<EventDetail | null>(null);
++  const [notFound, setNotFound] = useState(false);
++
++  useEffect(() => {
++    setEvent(null);
++    eventApi
++      .detail(slug ?? '')
++      .then(setEvent)
++      .catch(() => setNotFound(true));
++  }, [slug]);
++
++  if (notFound) return <NotFoundPage />;
++  if (!event) {
++    return (
++      <section className="page px" style={{ paddingTop: 48, paddingBottom: 80 }}>
++        <div className="skeleton" style={{ height: 420 }} />
++      </section>
++    );
++  }
++  const { summary } = event;
++  const ongoing = summary.status === 'ONGOING';
++
++  return (
++    <>
++      <OrderIntro crumbs={[{ label: '이벤트', to: '/events' }, { label: summary.title }]} eyebrow="EVENT" title={summary.title} />
++      <section className={`page px ${styles.hero}`}>
++        <img className={styles.heroImage} src={summary.thumbnailUrl} alt="" />
++        <div className={styles.heroCopy}>
++          <StatusChip status={summary.status} />
++          <p className={styles.period}>이벤트 기간 · {formatPeriod(summary.startsOn, summary.endsOn)}</p>
++          {summary.kind === 'THEME_SALE' && event.discountRate && (
++            <p className={styles.badge}>
++              테마 향 특가 <strong>{event.discountRate}%</strong>
++            </p>
++          )}
++          <p className={styles.body}>{event.body ?? summary.summary}</p>
++          {summary.kind === 'THEME_SALE' && event.themeSlug && (
++            <div className={styles.heroActions}>
++              <Link to={`/theme/${event.themeSlug}`} className="btn btn-primary">
++                테마 향 바로가기 <span aria-hidden>→</span>
++              </Link>
++              <Link to="/events" className="btn btn-ghost">
++                다른 이벤트
++              </Link>
++            </div>
++          )}
++        </div>
++      </section>
++
++      {summary.kind === 'THEME_SALE' && event.themeSlug && (
++        <ThemeSaleProducts themeSlug={event.themeSlug} rate={event.discountRate ?? 0} />
++      )}
++      {summary.kind === 'ROULETTE' && <RouletteSection ongoing={ongoing} />}
++      {summary.kind === 'WELCOME_COUPON' && <WelcomeCouponSection ongoing={ongoing} />}
++      <CompactFooter />
++    </>
++  );
++}
++
++/* ───────── 테마 특가: 테마에 묶인 향 소개 ───────── */
++
++function ThemeSaleProducts({ themeSlug, rate }: { themeSlug: string; rate: number }) {
++  const [theme, setTheme] = useState<ThemeDetail | null>(null);
++
++  useEffect(() => {
++    themeApi.detail(themeSlug).then(setTheme).catch(() => setTheme(null));
++  }, [themeSlug]);
++
++  if (!theme) return null;
++  return (
++    <section className={`page px ${styles.section}`}>
++      <div className={styles.sectionHead}>
++        <h2>이벤트 대상 향 · {theme.summary.title}</h2>
++        <Link to={`/theme/${themeSlug}`} className="help">
++          테마에서 이야기와 함께 보기 ↗
++        </Link>
++      </div>
++      <div className={styles.products}>
++        {theme.items.map(({ product }) => (
++          <ProductCard key={product.id} product={product} badge={rate ? `${rate}% 특가` : undefined} />
++        ))}
++      </div>
++    </section>
++  );
++}
++
++/* ───────── 룰렛: 결과는 서버가 정하고, 바퀴는 그 칸에 멈추기만 합니다 ───────── */
++
++type PrizeCode = SpinResult['prize'];
++
++/** 바퀴의 칸 구성 (꽝 칸이 가장 많고 50% 칸은 하나) — 실제 확률은 서버 가중치로 결정 */
++const SEGMENTS: { code: PrizeCode; option: string }[] = [
++  { code: 'MISS', option: '꽝' },
++  { code: 'OFF_10', option: '10% 할인' },
++  { code: 'MISS', option: '꽝' },
++  { code: 'OFF_20', option: '20% 할인' },
++  { code: 'MISS', option: '꽝' },
++  { code: 'OFF_10', option: '10% 할인' },
++  { code: 'MISS', option: '꽝' },
++  { code: 'OFF_50', option: '50% 할인' },
++];
++const SEGMENT_COLORS: Record<PrizeCode, string> = {
++  MISS: '#eeeae1',
++  OFF_10: '#e8e0d3',
++  OFF_20: '#a88f76',
++  OFF_50: '#66513f',
++};
++const WHEEL_DATA = SEGMENTS.map((s) => ({
++  option: s.option,
++  style: { backgroundColor: SEGMENT_COLORS[s.code], textColor: s.code === 'OFF_20' || s.code === 'OFF_50' ? '#fffdfa' : '#3e3b31' },
++}));
++
++function RouletteSection({ ongoing }: { ongoing: boolean }) {
++  const { member, requireMember } = useAuth();
++  const toast = useToast();
++  const navigate = useNavigate();
++  const [status, setStatus] = useState<RouletteStatus | null>(null);
++  const [spinning, setSpinning] = useState(false);
++  const [prizeNumber, setPrizeNumber] = useState(0);
++  const [result, setResult] = useState<SpinResult | null>(null);
++  const [showResult, setShowResult] = useState(false);
++
++  const load = useCallback(() => {
++    eventApi.rouletteStatus().then(setStatus).catch(() => setStatus(null));
++  }, []);
++  useEffect(load, [load, member]);
++
++  const spin = async () => {
++    if (!requireMember('룰렛은 회원만 돌릴 수 있어요.')) return;
++    if (spinning) return;
++    try {
++      const res = await eventApi.spin();
++      const candidates = SEGMENTS.map((s, i) => (s.code === res.prize ? i : -1)).filter((i) => i >= 0);
++      setPrizeNumber(candidates[Math.floor(Math.random() * candidates.length)]);
++      setResult(res);
++      setSpinning(true);
++    } catch (e) {
++      toast(e instanceof ApiError ? e.message : '룰렛을 돌리지 못했어요.');
++      load();
++    }
++  };
++
++  const spunToday = status?.spunToday ?? false;
++
++  return (
++    <section className={`page px ${styles.section}`}>
++      <div className={styles.sectionHead}>
++        <h2>오늘의 룰렛</h2>
++        <span className="help">하루 한 번 · 매일 자정에 다시 돌릴 수 있어요</span>
++      </div>
++      <div className={styles.roulette}>
++        <div className={styles.wheelWrap}>
++          <Wheel
++            mustStartSpinning={spinning}
++            prizeNumber={prizeNumber}
++            data={WHEEL_DATA}
++            outerBorderColor="#66513f"
++            outerBorderWidth={6}
++            innerBorderColor="#66513f"
++            radiusLineColor="#fffdfa"
++            radiusLineWidth={2}
++            fontFamily="sans-serif"
++            fontSize={16}
++            spinDuration={0.6}
++            onStopSpinning={() => {
++              setSpinning(false);
++              setShowResult(true);
++              load();
++            }}
++          />
++        </div>
++        <div className={styles.rouletteSide}>
++          <table className={styles.odds}>
++            <thead>
++              <tr>
++                <th>경품</th>
++                <th>최대 할인</th>
++                <th>당첨 확률</th>
++              </tr>
++            </thead>
++            <tbody>
++              {(status?.prizes ?? []).map((p) => (
++                <tr key={p.code}>
++                  <td>{p.label}</td>
++                  <td>{p.rate ? formatPrice(p.maxDiscount) : '-'}</td>
++                  <td>{p.probability}%</td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++          <button
++            className={`btn btn-primary ${styles.spinButton}`}
++            onClick={() => void spin()}
++            disabled={spinning || !ongoing || (Boolean(member) && spunToday)}
++          >
++            {!ongoing ? '이벤트 기간이 아니에요' : spinning ? '돌아가는 중…' : member && spunToday ? '오늘은 이미 참여했어요' : '룰렛 돌리기'}
++          </button>
++          <p className={styles.note}>
++            {member && spunToday && status?.todayPrizeLabel
++              ? `오늘의 결과: ${status.todayPrizeLabel} · 다음 참여 ${formatDateTime(status.nextAvailableAt)}`
++              : '당첨 쿠폰은 3만 원 이상 주문 시 쓸 수 있고, 발급일로부터 7일 동안 사용할 수 있어요. 할인율이 클수록 당첨되기 어려워요.'}
++          </p>
++        </div>
++      </div>
++      {showResult && result && (
++        <Modal
++          title={result.prize === 'MISS' ? '아쉽게도 꽝이에요' : `${result.label} 당첨!`}
++          onClose={() => setShowResult(false)}
++          actions={
++            result.coupon ? (
++              <>
++                <button className="btn btn-ghost" onClick={() => setShowResult(false)}>
++                  닫기
++                </button>
++                <button className="btn btn-primary" onClick={() => navigate('/mypage/coupons')}>
++                  쿠폰함 보기
++                </button>
++              </>
++            ) : (
++              <button className="btn btn-primary" onClick={() => setShowResult(false)}>
++                내일 다시 도전할게요
++              </button>
++            )
++          }
++        >
++          {result.message}
++        </Modal>
++      )}
++    </section>
++  );
++}
++
++/* ───────── 신규 가입 쿠폰: 회원이면 누구나 1회 ───────── */
++
++function WelcomeCouponSection({ ongoing }: { ongoing: boolean }) {
++  const { requireMember } = useAuth();
++  const toast = useToast();
++  const navigate = useNavigate();
++  const [busy, setBusy] = useState(false);
++  const [issued, setIssued] = useState(false);
++
++  const claim = async () => {
++    if (!requireMember('쿠폰은 회원만 받을 수 있어요. 가입하고 다시 눌러 주세요.')) return;
++    setBusy(true);
++    try {
++      await eventApi.claimWelcome();
++      setIssued(true);
++    } catch (e) {
++      // 이미 받은 회원(409)은 모달 없이 알림만
++      toast(e instanceof ApiError ? e.message : '쿠폰을 받지 못했어요. 잠시 후 다시 시도해 주세요.');
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <section className={`page px ${styles.section}`}>
++      <div className={styles.sectionHead}>
++        <h2>웰컴 쿠폰 받기</h2>
++      </div>
++      <div className={styles.couponCard}>
++        <div>
++          <strong>3,000원</strong>
++          <p>
++            첫 향을 위한 환영 쿠폰
++            <br />3만 원 이상 주문 시 · 발급일로부터 30일 · 회원 1인 1회
++          </p>
++        </div>
++        <button className="btn" disabled={busy || !ongoing} onClick={() => void claim()}>
++          {busy ? '발급 중…' : '신규 가입 쿠폰 받기'}
++        </button>
++      </div>
++      {issued && (
++        <Modal
++          title="쿠폰이 발급되었습니다."
++          onClose={() => setIssued(false)}
++          actions={
++            <>
++              <button className="btn btn-ghost" onClick={() => setIssued(false)}>
++                닫기
++              </button>
++              <button className="btn btn-primary" onClick={() => navigate('/mypage/coupons')}>
++                쿠폰함 보기
++              </button>
++            </>
++          }
++        >
++          3,000원 웰컴 쿠폰이 쿠폰함에 들어갔어요. 주문서에서 바로 사용할 수 있어요.
++        </Modal>
++      )}
++    </section>
++  );
++}
+diff --git a/frontend/src/pages/mypage/MyCoupons.tsx b/frontend/src/pages/mypage/MyCoupons.tsx
+index aa2c369..69c0fd3 100644
+--- a/frontend/src/pages/mypage/MyCoupons.tsx
++++ b/frontend/src/pages/mypage/MyCoupons.tsx
+@@ -35,10 +35,10 @@ export default function MyCoupons() {
+         <div className={styles.couponList}>
+           {coupons?.map((c) => (
+             <div key={c.id} className={`${styles.coupon} ${c.usable ? '' : styles.couponUsed}`}>
+-              <strong>{formatPrice(c.discountAmount)}</strong>
++              <strong>{c.discountRate ? `${c.discountRate}%` : formatPrice(c.discountAmount)}</strong>
+               <p>{c.name}</p>
+               <span>
+-                {formatPrice(c.minOrderAmount)} 이상 주문 시 · {formatDate(c.expiresAt)}까지
++                {formatPrice(c.minOrderAmount)} 이상 주문 시{c.maxDiscountAmount ? ` · 최대 ${formatPrice(c.maxDiscountAmount)} 할인` : ''} · {formatDate(c.expiresAt)}까지
+                 {c.usedAt ? ` · ${formatDate(c.usedAt)} 사용` : !c.usable ? ' · 기간 만료' : ''}
+               </span>
+             </div>
+diff --git a/frontend/src/pages/order/CartPage.tsx b/frontend/src/pages/order/CartPage.tsx
+index 511091c..b7f586d 100644
+--- a/frontend/src/pages/order/CartPage.tsx
++++ b/frontend/src/pages/order/CartPage.tsx
+@@ -6,7 +6,7 @@ import { cartApi, couponApi } from '../../api/endpoints';
+ import type { Cart, Coupon } from '../../api/types';
+ import { CompactFooter } from '../../components/layout/Footer';
+ import { useToast } from '../../components/Toast';
+-import { FREE_SHIPPING, SHIPPING_FEE, formatPrice, shippingFor } from '../../lib/format';
++import { FREE_SHIPPING, SHIPPING_FEE, couponDiscount, formatPrice, shippingFor } from '../../lib/format';
+ import { useShop } from '../../shop/ShopContext';
+ import OrderIntro from './OrderIntro';
+ import styles from './Commerce.module.css';
+@@ -58,10 +58,10 @@ export default function CartPage() {
+     () =>
+       coupons
+         .filter((c) => c.usable && amount >= c.minOrderAmount)
+-        .sort((a, b) => b.discountAmount - a.discountAmount)[0],
++        .sort((a, b) => couponDiscount(b, amount) - couponDiscount(a, amount))[0],
+     [coupons, amount],
+   );
+-  const discount = bestCoupon ? Math.min(bestCoupon.discountAmount, amount) : 0;
++  const discount = bestCoupon ? couponDiscount(bestCoupon, amount) : 0;
+   const allChecked = availableItems.length > 0 && availableItems.every((i) => selected.has(i.id));
+ 
+   const toggle = (id: number) =>
+@@ -156,7 +156,15 @@ export default function CartPage() {
+                     <span className={styles.rowMeta}>
+                       {item.category} · {item.volume}
+                     </span>
+-                    <span className={styles.rowMeta}>단가 {formatPrice(item.unitPrice)}</span>
++                    <span className={styles.rowMeta}>
++                      단가 {formatPrice(item.unitPrice)}
++                      {item.saleRate > 0 && (
++                        <>
++                          {' '}
++                          <s>{formatPrice(item.listPrice)}</s> · 테마 특가 {item.saleRate}%
++                        </>
++                      )}
++                    </span>
+                     {!item.available && (
+                       <span className={styles.rowWarn}>
+                         {item.soldOut ? '품절된 상품이에요.' : `남은 재고는 ${item.stock}개예요. 수량을 줄여 주세요.`}
+@@ -251,7 +259,7 @@ export default function CartPage() {
+         </div>
+         <div>
+           <h3>쿠폰과 적립금</h3>
+-          <p>가입 시 받은 웰컴 쿠폰은 주문서에서 적용할 수 있어요. 배송이 완료되면 상품 금액의 1%가 적립됩니다.</p>
++          <p>이벤트에서 받은 웰컴·룰렛 쿠폰은 주문서에서 적용할 수 있어요. 배송이 완료되면 상품 금액의 1%가 적립됩니다.</p>
+         </div>
+         <div>
+           <h3>마음에 남을 향을 천천히</h3>
+diff --git a/frontend/src/pages/order/CheckoutPage.tsx b/frontend/src/pages/order/CheckoutPage.tsx
+index 7e325eb..d787e14 100644
+--- a/frontend/src/pages/order/CheckoutPage.tsx
++++ b/frontend/src/pages/order/CheckoutPage.tsx
+@@ -5,7 +5,7 @@ import type { Coupon, OrderLine, PaymentConfig, PaymentMethod, ProductDetail } f
+ import { useAuth } from '../../auth/AuthContext';
+ import { CompactFooter } from '../../components/layout/Footer';
+ import { useToast } from '../../components/Toast';
+-import { formatPrice, shippingFor } from '../../lib/format';
++import { couponBenefit, couponDiscount, formatPrice, shippingFor } from '../../lib/format';
+ import { proceedPayment, resultPath, useTossWidget } from '../../lib/payment';
+ import { openPostcode } from '../../lib/postcode';
+ import { useShop } from '../../shop/ShopContext';
+@@ -100,15 +100,16 @@ export default function CheckoutPage() {
+       })),
+     [products, state],
+   );
+-  const itemsAmount = lines.reduce((sum, l) => sum + l.product.price * l.quantity, 0);
++  const itemsAmount = lines.reduce((sum, l) => sum + l.product.salePrice * l.quantity, 0);
++  const saleDiscount = lines.reduce((sum, l) => sum + (l.product.price - l.product.salePrice) * l.quantity, 0);
+   const quantity = lines.reduce((sum, l) => sum + l.quantity, 0);
+   const usableCoupons = coupons.filter((c) => c.usable);
+   const coupon = usableCoupons.find((c) => c.id === couponId);
+-  const couponDiscount = coupon && itemsAmount >= coupon.minOrderAmount ? Math.min(coupon.discountAmount, itemsAmount) : 0;
+-  const maxPoint = Math.max(0, Math.min(availablePoint, itemsAmount - couponDiscount));
++  const couponDiscountAmount = coupon ? couponDiscount(coupon, itemsAmount) : 0;
++  const maxPoint = Math.max(0, Math.min(availablePoint, itemsAmount - couponDiscountAmount));
+   const pointUsed = Math.min(maxPoint, Math.max(0, Number(pointInput.replace(/[^0-9]/g, '')) || 0));
+   const shippingFee = shippingFor(itemsAmount);
+-  const total = itemsAmount - couponDiscount - pointUsed + shippingFee;
++  const total = itemsAmount - couponDiscountAmount - pointUsed + shippingFee;
+   const currentMethod = METHODS.find((m) => m.value === method) ?? METHODS[0];
+   const toss = useTossWidget(paymentConfig, total, 'toss-payment-methods', 'toss-agreement');
+   const soldOutLine = lines.find((l) => l.product.soldOut || l.product.stock < l.quantity);
+@@ -118,7 +119,7 @@ export default function CheckoutPage() {
+     if (couponId !== '' || !itemsAmount) return;
+     const best = usableCoupons
+       .filter((c) => itemsAmount >= c.minOrderAmount)
+-      .sort((a, b) => b.discountAmount - a.discountAmount)[0];
++      .sort((a, b) => couponDiscount(b, itemsAmount) - couponDiscount(a, itemsAmount))[0];
+     if (best) setCouponId(best.id);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [coupons, itemsAmount]);
+@@ -333,10 +334,14 @@ export default function CheckoutPage() {
+                     <p className={styles.lineName}>{product.name}</p>
+                     <p className={styles.lineMeta}>
+                       {product.category} · {product.volume} / {q}개
++                      {product.saleRate > 0 && ` · 테마 특가 ${product.saleRate}%`}
+                     </p>
+                     {(product.soldOut || product.stock < q) && <p className="error-text">재고가 부족해요. (남은 수량 {product.stock}개)</p>}
+                   </div>
+-                  <span className={styles.linePrice}>{formatPrice(product.price * q)}</span>
++                  <span className={styles.linePrice}>
++                    {product.saleRate > 0 && <s className={styles.lineListPrice}>{formatPrice(product.price * q)}</s>}
++                    {formatPrice(product.salePrice * q)}
++                  </span>
+                 </div>
+               ))}
+               <div className={styles.lineTotal}>
+@@ -358,7 +363,7 @@ export default function CheckoutPage() {
+                   <option value="">적용하지 않음</option>
+                   {usableCoupons.map((c) => (
+                     <option key={c.id} value={c.id} disabled={itemsAmount < c.minOrderAmount}>
+-                      {c.name} ({formatPrice(c.discountAmount)} · {formatPrice(c.minOrderAmount)} 이상)
++                      {c.name} ({couponBenefit(c)} · {formatPrice(c.minOrderAmount)} 이상)
+                     </option>
+                   ))}
+                 </select>
+@@ -428,11 +433,17 @@ export default function CheckoutPage() {
+             <dl className={styles.summaryRows}>
+               <div>
+                 <dt>상품 합계</dt>
+-                <dd>{formatPrice(itemsAmount)}</dd>
++                <dd>{formatPrice(itemsAmount + saleDiscount)}</dd>
+               </div>
++              {saleDiscount > 0 && (
++                <div>
++                  <dt>테마 특가</dt>
++                  <dd>- {formatPrice(saleDiscount)}</dd>
++                </div>
++              )}
+               <div>
+                 <dt>쿠폰</dt>
+-                <dd>{couponDiscount ? `- ${formatPrice(couponDiscount)}` : '0원'}</dd>
++                <dd>{couponDiscountAmount ? `- ${formatPrice(couponDiscountAmount)}` : '0원'}</dd>
+               </div>
+               <div>
+                 <dt>적립금 사용</dt>
+@@ -448,7 +459,7 @@ export default function CheckoutPage() {
+               <span className={styles.totalLabel}>총 결제 예정 금액</span>
+               <span className={`${styles.totalAmount} ${styles.totalAmountLarge}`}>{formatPrice(total)}</span>
+               <p className={styles.totalNote}>
+-                {lines.length}개 상품 · {couponDiscount || pointUsed ? `할인 ${formatPrice(couponDiscount + pointUsed)}` : '추가 할인 없음'}
++                {lines.length}개 상품 · {saleDiscount || couponDiscountAmount || pointUsed ? `할인 ${formatPrice(saleDiscount + couponDiscountAmount + pointUsed)}` : '추가 할인 없음'}
+               </p>
+             </div>
+             <div className={styles.consents}>
+diff --git a/frontend/src/pages/order/Commerce.module.css b/frontend/src/pages/order/Commerce.module.css
+index 602de14..66d79a7 100644
+--- a/frontend/src/pages/order/Commerce.module.css
++++ b/frontend/src/pages/order/Commerce.module.css
+@@ -389,6 +389,7 @@
+ .lineName { font-size: 14px; font-weight: 500; }
+ .lineMeta { font-size: 11px; color: var(--color-muted); margin-top: 4px; }
+ .linePrice { font-size: 13px; }
++.lineListPrice { margin-right: 6px; font-size: 11px; color: var(--color-muted); }
+ .lineTotal {
+   display: flex;
+   justify-content: space-between;
+diff --git a/frontend/src/pages/product/ProductDetailPage.module.css b/frontend/src/pages/product/ProductDetailPage.module.css
+index 968c123..52ae754 100644
+--- a/frontend/src/pages/product/ProductDetailPage.module.css
++++ b/frontend/src/pages/product/ProductDetailPage.module.css
+@@ -97,6 +97,15 @@
+   font-size: 24px;
+   color: var(--color-brown);
+ }
++.listPrice {
++  font-size: 12px;
++  color: var(--color-muted);
++  margin-bottom: 4px;
++}
++.listPrice span {
++  color: var(--color-brown);
++  font-weight: 500;
++}
+ .priceHint {
+   font-size: 11px;
+   line-height: 1.8;
+diff --git a/frontend/src/pages/product/ProductDetailPage.tsx b/frontend/src/pages/product/ProductDetailPage.tsx
+index e32f629..43c3530 100644
+--- a/frontend/src/pages/product/ProductDetailPage.tsx
++++ b/frontend/src/pages/product/ProductDetailPage.tsx
+@@ -98,7 +98,16 @@ export default function ProductDetailPage() {
+               </span>
+             </p>
+             <div className={styles.priceRow}>
+-              <p className={styles.price}>{formatPrice(product.price)}</p>
++              {product.saleRate > 0 ? (
++                <div>
++                  <p className={styles.listPrice}>
++                    <s>{formatPrice(product.price)}</s> <span>테마 특가 {product.saleRate}%</span>
++                  </p>
++                  <p className={styles.price}>{formatPrice(product.salePrice)}</p>
++                </div>
++              ) : (
++                <p className={styles.price}>{formatPrice(product.price)}</p>
++              )}
+               {product.soldOut ? (
+                 <p className={styles.soldOutText}>일시 품절 · 재입고 예정</p>
+               ) : (
+@@ -190,7 +199,10 @@ export default function ProductDetailPage() {
+               </div>
+               <div>
+                 <dt>판매가</dt>
+-                <dd>{formatPrice(product.price)}</dd>
++                <dd>
++                  {formatPrice(product.salePrice)}
++                  {product.saleRate > 0 && ` (정가 ${formatPrice(product.price)}, 테마 특가 ${product.saleRate}%)`}
++                </dd>
+               </div>
+             </dl>
+             <p className="help">구성 표기는 디자인 예시입니다. 실제 구매 전 제품 표시사항과 동봉된 안내를 확인해 주세요.</p>
+@@ -238,7 +250,7 @@ export default function ProductDetailPage() {
+             <div>
+               <p className={`serif ${styles.purchaseName}`}>{product.name}</p>
+               <p className={styles.purchaseMeta}>
+-                {product.typeLabel} · {product.volume} / 단가 {formatPrice(product.price)}
++                {product.typeLabel} · {product.volume} / 단가 {formatPrice(product.salePrice)}
+               </p>
+             </div>
+             <div className={styles.totalRow}>
+@@ -255,7 +267,7 @@ export default function ProductDetailPage() {
+                   ＋
+                 </button>
+               </div>
+-              <p className={styles.total}>{formatPrice(product.soldOut ? 0 : product.price * quantity)}</p>
++              <p className={styles.total}>{formatPrice(product.soldOut ? 0 : product.salePrice * quantity)}</p>
+             </div>
+           </div>
+           <div className={styles.actions}>
+diff --git a/frontend/src/pages/shop/CategoryPage.tsx b/frontend/src/pages/shop/CategoryPage.tsx
+index 89ec27f..dc5f388 100644
+--- a/frontend/src/pages/shop/CategoryPage.tsx
++++ b/frontend/src/pages/shop/CategoryPage.tsx
+@@ -5,6 +5,7 @@ import { productApi } from '../../api/endpoints';
+ import type { FilterOptions, PageResponse, ProductSummary } from '../../api/types';
+ import { useAuth } from '../../auth/AuthContext';
+ import Dropdown from '../../components/Dropdown';
++import PriceRange, { priceLabel } from '../../components/PriceRange';
+ import ProductCard from '../../components/ProductCard';
+ import { Footer } from '../../components/layout/Footer';
+ import { CATEGORY_META } from '../../lib/format';
+@@ -13,13 +14,6 @@ import styles from './CategoryPage.module.css';
+ 
+ const PAGE_SIZE = 9;
+ 
+-const PRICE_OPTIONS = [
+-  { value: '', label: '전체' },
+-  { value: '0-30000', label: '3만원 이하' },
+-  { value: '30000-50000', label: '3만~5만원' },
+-  { value: '50000-', label: '5만원 이상' },
+-];
+-
+ const SORT_OPTIONS = [
+   { value: 'popular', label: '여운 추천순' },
+   { value: 'newest', label: '신상품순' },
+@@ -89,7 +83,7 @@ export default function CategoryPage() {
+   };
+ 
+   const filterSummary = useMemo(() => {
+-    const active = [keyword && `'${keyword}'`, feeling, scene, PRICE_OPTIONS.find((o) => o.value === price && o.value)?.label]
++    const active = [keyword && `'${keyword}'`, feeling, scene, price && priceLabel(price)]
+       .filter(Boolean)
+       .join(' · ');
+     return active ? `${active} 향을 보고 있어요` : '모든 향을 보고 있어요';
+@@ -165,7 +159,7 @@ export default function CategoryPage() {
+               />
+             </>
+           )}
+-          <Dropdown label="가격" value={price} options={PRICE_OPTIONS} onChange={(v) => update('price', v)} />
++          <PriceRange value={price} onChange={(v) => update('price', v)} />
+           <span className={styles.filterSummary}>{filterSummary}</span>
+         </div>
+ 

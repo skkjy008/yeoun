@@ -1,8 +1,8 @@
 package com.yeoun.theme.service;
 
+import com.yeoun.event.service.SalePricing;
 import com.yeoun.global.exception.ApiException;
 import com.yeoun.product.domain.Product;
-import com.yeoun.product.dto.ProductDtos.ProductSummary;
 import com.yeoun.product.repository.ProductRepository;
 import com.yeoun.theme.domain.Theme;
 import com.yeoun.theme.dto.ThemeDtos.ThemeDetail;
@@ -32,6 +32,7 @@ public class ThemeService {
 
     private final ThemeRepository themeRepository;
     private final ProductRepository productRepository;
+    private final SalePricing salePricing;
 
     /** 공개 테마: 지금 기간인 테마를 먼저, 그다음 지난·예정 테마 */
     public List<ThemeSummary> published() {
@@ -47,9 +48,10 @@ public class ThemeService {
                 .filter(t -> admin || t.isPublished())
                 .orElseThrow(() -> ApiException.notFound("테마를 찾을 수 없습니다."));
         LocalDate today = LocalDate.now(SEOUL);
+        var summary = salePricing.summaries();
         List<ThemeItem> items = theme.getProducts().stream()
                 .filter(tp -> tp.getProduct().isActive())
-                .map(tp -> new ThemeItem(ProductSummary.from(tp.getProduct()), tp.getNote()))
+                .map(tp -> new ThemeItem(summary.apply(tp.getProduct()), tp.getNote()))
                 .toList();
         List<ThemeSummary> others = published().stream()
                 .filter(o -> !o.slug().equals(slug))

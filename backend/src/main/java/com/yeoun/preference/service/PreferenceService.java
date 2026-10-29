@@ -14,7 +14,6 @@ import com.yeoun.preference.dto.PreferenceDtos.SubmitRequest;
 import com.yeoun.preference.repository.MemberPreferenceRepository;
 import com.yeoun.preference.repository.PreferenceQuestionRepository;
 import com.yeoun.product.domain.Product;
-import com.yeoun.product.dto.ProductDtos.ProductSummary;
 import com.yeoun.product.repository.ProductRepository;
 import java.util.Comparator;
 import java.util.List;
@@ -22,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import com.yeoun.event.service.SalePricing;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +38,7 @@ public class PreferenceService {
     private final MemberRepository memberRepository;
     private final ProductRepository productRepository;
     private final AiCurationClient aiCurationClient;
+    private final SalePricing salePricing;
 
     public List<QuestionResponse> questions() {
         return questionRepository.findAllByOrderByQuestionNoAsc().stream().map(QuestionResponse::from).toList();
@@ -113,7 +114,7 @@ public class PreferenceService {
 
         String summary = aiSummary.orElseGet(() -> ruleBasedSummary(answers, keywords, profile, ranked));
         return Optional.of(new RecommendationResponse(headline, summary, keywords, aiSummary.isPresent(), answers,
-                ranked.stream().map(ProductSummary::from).toList()));
+                ranked.stream().map(salePricing.summaries()).toList()));
     }
 
     private static String ruleBasedSummary(List<AnswerResponse> answers, List<String> keywords, ScentProfile profile,

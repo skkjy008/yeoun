@@ -3,6 +3,7 @@ package com.yeoun.order.service;
 import com.yeoun.cart.service.CartService;
 import com.yeoun.coupon.domain.Coupon;
 import com.yeoun.coupon.repository.CouponRepository;
+import com.yeoun.event.service.SalePricing;
 import com.yeoun.global.common.PageResponse;
 import com.yeoun.global.exception.ApiException;
 import com.yeoun.member.domain.Member;
@@ -54,6 +55,7 @@ public class OrderService {
     private final CartService cartService;
     private final NotificationService notificationService;
     private final PaymentService paymentService;
+    private final SalePricing salePricing;
 
     /**
      * 주문서 제출: 재고·쿠폰·적립금을 먼저 예약(차감)하고 '결제 대기' 주문과 결제 정보를 만듭니다.
@@ -85,10 +87,13 @@ public class OrderService {
                 .paymentProvider(request.paymentProvider())
                 .fromCart(request.fromCart())
                 .build();
+        // 테마 특가는 주문 시점 기준으로 서버에서 다시 계산해 단가로 저장합니다.
+        Map<Long, Integer> saleRates = salePricing.activeRates();
         quantities.forEach((productId, quantity) -> {
             Product product = products.get(productId);
             product.decreaseStock(quantity);
-            order.addItem(new OrderItem(product, quantity));
+            int unitPrice = SalePricing.salePrice(product.getPrice(), saleRates.getOrDefault(productId, 0));
+            order.addItem(new OrderItem(product, quantity, unitPrice));
         });
 
         Coupon coupon = null;

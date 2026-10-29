@@ -18,7 +18,10 @@ const NAV = [
   { to: '/theme', label: '테마' },
   { to: '/custom', label: '커스텀' },
   { to: '/scent-finder', label: '나만의 향 찾기', memberOnly: true },
+  { to: '/events', label: '이벤트' },
 ];
+
+const SEARCH_SUGGESTIONS = ['비 온 뒤', '우디', '잠들기 전', '캔들', '차 한 잔', '살결'];
 
 export default function Header() {
   const { member, logout, requireMember } = useAuth();
@@ -27,6 +30,8 @@ export default function Header() {
   const toast = useToast();
   const { cartCount } = useShop();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
   const [accountOpen, setAccountOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -36,6 +41,7 @@ export default function Header() {
 
   useEffect(() => {
     setMenuOpen(false);
+    setSearchOpen(false);
     setAccountOpen(false);
     setNoticeOpen(false);
   }, [location.pathname]);
@@ -102,7 +108,7 @@ export default function Header() {
   return (
     <header className={styles.header}>
       <div className={styles.announcement}>
-        <Link to="/signup">첫 만남을 위한 작은 선물, 신규 가입 시 3,000원 웰컴 쿠폰 →</Link>
+        <Link to="/events/welcome-coupon">첫 만남을 위한 작은 선물, 회원이라면 누구나 3,000원 웰컴 쿠폰 →</Link>
       </div>
       <div className={`${styles.nav} px`}>
         <button className={styles.menuButton} onClick={() => setMenuOpen((v) => !v)} aria-label="메뉴 열기">
@@ -133,8 +139,8 @@ export default function Header() {
         </nav>
 
         <div className={styles.utility}>
-          <button aria-label="검색" onClick={() => navigate('/search')}>
-            <Search size={21} strokeWidth={1.4} />
+          <button aria-label="검색" aria-expanded={searchOpen} onClick={() => setSearchOpen((v) => !v)}>
+            {searchOpen ? <X size={21} strokeWidth={1.4} /> : <Search size={21} strokeWidth={1.4} />}
           </button>
 
           {member && (
@@ -202,7 +208,51 @@ export default function Header() {
           </button>
           <span className={styles.count}>{cartCount}</span>
         </div>
+        {member && <p className={styles.greeting}>{member.name}님 환영합니다!</p>}
       </div>
+
+      {searchOpen && (
+        <div className={styles.searchLayer} role="dialog" aria-label="향 검색">
+          <form
+            className={styles.searchBar}
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const q = searchText.trim();
+              navigate(q ? `/search?keyword=${encodeURIComponent(q)}` : '/search');
+              setSearchOpen(false);
+            }}
+          >
+            <Search size={20} strokeWidth={1.4} aria-hidden />
+            <input
+              autoFocus
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setSearchOpen(false)}
+              placeholder="상품명이나 떠오르는 장면을 검색하세요"
+              aria-label="검색어"
+            />
+            <button type="submit" className={styles.searchSubmit}>
+              검색
+            </button>
+          </form>
+          <div className={styles.suggestions}>
+            <span>추천 검색어</span>
+            {SEARCH_SUGGESTIONS.map((word) => (
+              <button
+                key={word}
+                type="button"
+                onClick={() => {
+                  navigate(`/search?keyword=${encodeURIComponent(word)}`);
+                  setSearchOpen(false);
+                }}
+              >
+                {word}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

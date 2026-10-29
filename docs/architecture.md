@@ -48,6 +48,8 @@ erDiagram
   member ||--o{ commission_proposal : "조향사"
   member ||--o{ payment : "결제"
   commission ||--o| settlement : "정산"
+  member ||--o{ roulette_spin : "룰렛 (1일 1회)"
+  coupon |o--o| roulette_spin : "당첨 쿠폰"
   member ||--o{ settlement : "조향사"
   theme ||--o{ theme_product : "묶은 향"
   product ||--o{ theme_product : ""
@@ -138,11 +140,29 @@ erDiagram
   coupon {
     bigint id PK
     bigint member_id FK
-    varchar code "WELCOME ..."
+    varchar code "WELCOME, ROULETTE ..."
     int discount_amount
+    int discount_rate "정률 쿠폰(%)"
+    int max_discount_amount
     int min_order_amount
     datetime expires_at
     datetime used_at
+  }
+  event {
+    bigint id PK
+    varchar slug UK
+    varchar kind "THEME_SALE, ROULETTE, WELCOME_COUPON"
+    date starts_on
+    date ends_on
+    varchar theme_slug
+    int discount_rate
+  }
+  roulette_spin {
+    bigint id PK
+    bigint member_id FK
+    date spun_on "member+spun_on UK"
+    varchar prize
+    bigint coupon_id FK
   }
   orders {
     bigint id PK
@@ -272,6 +292,7 @@ sequenceDiagram
 
 - `PaymentService`는 주문·커미션을 직접 알지 않고 `PaymentEvents.Approved/Failed` 이벤트를 발행합니다. 주문·커미션 서비스가 같은 트랜잭션에서 받아 상태를 바꿉니다.
 - 키가 없으면 `MockPaymentGateway`가 같은 경로로 즉시 승인하므로, 테스트와 로컬 개발이 PG 없이도 전체 흐름을 거칩니다.
+- 주문 단가는 주문 시점의 판매가(테마 특가 반영)로 서버에서 다시 계산해 저장 — 화면에 보인 가격을 그대로 믿지 않음
 - 취소 시 PG 환불 → 재고·쿠폰·적립금 복구, 배송 완료 시 1% 적립 + 누적 금액으로 등급 상향
 
 ## 커미션 정산 · 환불
@@ -334,6 +355,10 @@ sequenceDiagram
 | GET/POST/PATCH/DELETE | /api/cart, /api/cart/items… | 회원 | 장바구니 |
 | GET/PUT/DELETE | /api/wishlist… | 회원 | 찜한 향 |
 | GET | /api/coupons/me | 회원 | 내 쿠폰 |
+| GET | /api/events, /api/events/{slug} | - | 이벤트 목록·상세 |
+| GET | /api/events/roulette/status | - | 오늘 참여 여부·경품 확률 |
+| POST | /api/events/roulette/spin | 회원 | 룰렛 돌리기 (서버 추첨, 1일 1회, 중복 409) |
+| POST | /api/events/welcome-coupon | 회원 | 웰컴 쿠폰 받기 (201 / 이미 받음 409) |
 | POST/GET | /api/orders | 회원 | 주문서 제출(결제 대기 + 결제 정보) / 내 주문 목록 |
 | GET/POST | /api/orders/{id}, /cancel | 회원 | 주문 상세 / 취소 |
 | GET | /api/members/me/summary | 회원 | 마이페이지 요약 |

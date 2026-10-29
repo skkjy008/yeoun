@@ -73,3 +73,27 @@ export const formatDateTime = (iso: string) => {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${formatDate(iso)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
+
+/** 쿠폰을 이 주문 금액에 적용했을 때의 할인 금액 (백엔드 Coupon.discountFor와 같은 계산) */
+export function couponDiscount(
+  coupon: { discountAmount: number; discountRate: number | null; maxDiscountAmount: number | null; minOrderAmount: number },
+  amount: number,
+) {
+  if (amount < coupon.minOrderAmount) return 0;
+  if (!coupon.discountRate) return Math.min(coupon.discountAmount, amount);
+  let discount = Math.floor((amount * coupon.discountRate) / 100 / 10) * 10;
+  if (coupon.maxDiscountAmount != null) discount = Math.min(discount, coupon.maxDiscountAmount);
+  return Math.min(discount, amount);
+}
+
+/** 쿠폰 혜택 한 줄: "3,000원" 또는 "10% (최대 10,000원)" */
+export function couponBenefit(coupon: { discountAmount: number; discountRate: number | null; maxDiscountAmount: number | null }) {
+  if (!coupon.discountRate) return formatPrice(coupon.discountAmount);
+  return `${coupon.discountRate}%${coupon.maxDiscountAmount ? ` (최대 ${formatPrice(coupon.maxDiscountAmount)})` : ''}`;
+}
+
+/** 이벤트·테마 기간 표시: "2026.10.01 ~ 2026.11.02" / 기간이 없으면 "상시 진행" */
+export function formatPeriod(start: string | null, end: string | null) {
+  if (!start && !end) return '상시 진행';
+  return `${start ? formatDate(start) : ''} ~ ${end ? formatDate(end) : ''}`.trim();
+}

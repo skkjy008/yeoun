@@ -8,6 +8,7 @@ import com.yeoun.product.repository.ProductRepository;
 import com.yeoun.wishlist.domain.WishlistItem;
 import com.yeoun.wishlist.repository.WishlistItemRepository;
 import java.util.List;
+import com.yeoun.event.service.SalePricing;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,12 +21,13 @@ public class WishlistService {
     private final WishlistItemRepository wishlistItemRepository;
     private final MemberRepository memberRepository;
     private final ProductRepository productRepository;
+    private final SalePricing salePricing;
 
     public List<ProductSummary> findMine(Long memberId) {
         return wishlistItemRepository.findAllByMemberIdOrderByCreatedAtDescIdDesc(memberId).stream()
                 .map(WishlistItem::getProduct)
                 .filter(Product::isActive)
-                .map(ProductSummary::from)
+                .map(salePricing.summaries())
                 .toList();
     }
 

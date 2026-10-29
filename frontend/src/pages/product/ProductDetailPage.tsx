@@ -98,7 +98,16 @@ export default function ProductDetailPage() {
               </span>
             </p>
             <div className={styles.priceRow}>
-              <p className={styles.price}>{formatPrice(product.price)}</p>
+              {product.saleRate > 0 ? (
+                <div>
+                  <p className={styles.listPrice}>
+                    <s>{formatPrice(product.price)}</s> <span>테마 특가 {product.saleRate}%</span>
+                  </p>
+                  <p className={styles.price}>{formatPrice(product.salePrice)}</p>
+                </div>
+              ) : (
+                <p className={styles.price}>{formatPrice(product.price)}</p>
+              )}
               {product.soldOut ? (
                 <p className={styles.soldOutText}>일시 품절 · 재입고 예정</p>
               ) : (
@@ -190,7 +199,10 @@ export default function ProductDetailPage() {
               </div>
               <div>
                 <dt>판매가</dt>
-                <dd>{formatPrice(product.price)}</dd>
+                <dd>
+                  {formatPrice(product.salePrice)}
+                  {product.saleRate > 0 && ` (정가 ${formatPrice(product.price)}, 테마 특가 ${product.saleRate}%)`}
+                </dd>
               </div>
             </dl>
             <p className="help">구성 표기는 디자인 예시입니다. 실제 구매 전 제품 표시사항과 동봉된 안내를 확인해 주세요.</p>
@@ -238,7 +250,7 @@ export default function ProductDetailPage() {
             <div>
               <p className={`serif ${styles.purchaseName}`}>{product.name}</p>
               <p className={styles.purchaseMeta}>
-                {product.typeLabel} · {product.volume} / 단가 {formatPrice(product.price)}
+                {product.typeLabel} · {product.volume} / 단가 {formatPrice(product.salePrice)}
               </p>
             </div>
             <div className={styles.totalRow}>
@@ -255,7 +267,7 @@ export default function ProductDetailPage() {
                   ＋
                 </button>
               </div>
-              <p className={styles.total}>{formatPrice(product.soldOut ? 0 : product.price * quantity)}</p>
+              <p className={styles.total}>{formatPrice(product.soldOut ? 0 : product.salePrice * quantity)}</p>
             </div>
           </div>
           <div className={styles.actions}>
